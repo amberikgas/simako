@@ -1,0 +1,1472 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>Si-MAKO — Sistem Manajemen Konveksi</title>
+  <!-- Chart.js CDN untuk Visualisasi Laporan (F10) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <!-- Include Modular Stylesheet (GAS HtmlService) -->
+  <!-- Terapkan tema SEBELUM render pertama agar tidak berkedip (tersimpan > preferensi sistem) -->
+  <script>
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('simako_theme'); } catch (e) {}
+      if (t !== 'dark' && t !== 'light') {
+        t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Splash pemuatan awal (dihapus otomatis saat data pertama tiba) -->
+  <div id="bootSplash" class="boot-splash" role="status" aria-live="polite">
+    <div class="boot-spinner" aria-hidden="true"></div>
+    <div>Memuat Si-MAKO&hellip;</div>
+  </div>
+
+  <!-- Indikator Memuat Global -->
+  <div id="globalLoadingBar" class="loading-bar"></div>
+
+  <!-- Notifikasi Toast -->
+  <div id="toastContainer" class="toast-stack" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Layar Masuk Email Sederhana (GAS-PRO-API Authentication) -->
+  <div id="loginScreen" class="auth-screen">
+    <div class="auth-card">
+      <div class="auth-brand-header">
+        <div class="brand-logo-mark">SM</div>
+        <h1 class="headline-md" style="margin-bottom:6px;">Masuk ke Si-MAKO</h1>
+        <p class="body-sm" style="color:var(--text-muted); max-width:340px;">
+          Sistem Manajemen Konveksi (Edisi REST API). Masukkan email yang terdaftar pada sheet <code>Pengguna</code>.
+        </p>
+      </div>
+
+      <form id="emailLoginForm" onsubmit="handleLoginSubmit(event)">
+        <div class="form-group">
+          <label class="form-label" for="loginEmailInput">Email Akun Terdaftar (Owner / Admin) <span class="req">*</span></label>
+          <input type="email" id="loginEmailInput" class="form-control" placeholder="nama@gmail.com" required autocomplete="email">
+        </div>
+
+        <div id="loginApiConfigBox" class="api-config-box" style="display:none;">
+          <div class="flex-between" style="margin-bottom:6px;">
+            <label class="form-label" for="loginGasUrlInput" style="margin:0; font-size:12px;">URL Endpoint GAS (/exec) <span class="req">*</span></label>
+            <span class="badge badge-info" style="font-size:10px;">REST API</span>
+          </div>
+          <input type="url" id="loginGasUrlInput" class="form-control" style="font-size:12px;" placeholder="https://script.google.com/macros/s/.../exec">
+          <div class="body-sm" style="color:var(--text-muted); margin-top:6px; font-size:11px;">
+            Salin URL Web App (<code>/exec</code>) dari hasil deploy Google Apps Script Anda, atau isi langsung variabel <code>GAS_URL</code> di <code>js/app.js</code>.
+          </div>
+        </div>
+
+        <button type="submit" id="loginSubmitBtn" class="btn btn-primary" style="width:100%; margin-top:4px;">
+          <span>Masuk ke Dashboard</span>
+        </button>
+
+        <div class="flex-between" style="margin-top:14px;">
+          <button type="button" class="btn btn-ghost btn-xs" onclick="toggleLoginApiConfig()">
+            Atur URL API Backend
+          </button>
+          <button type="button" class="btn btn-ghost btn-xs" onclick="toggleTheme()">
+            Ganti Tema Terang/Gelap
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Layar Akses Ditolak (F1 — Ditampilkan jika email tidak terdaftar / tidak aktif) -->
+  <div id="accessDeniedScreen" style="display:none; min-height:100vh; align-items:center; justify-content:center; padding:24px; background:var(--bg-canvas);">
+    <div class="card" style="max-width:480px; width:100%; text-align:center; padding:36px 28px;">
+      <div style="width:56px; height:56px; border-radius:999px; background:var(--danger-soft); color:var(--danger); display:flex; align-items:center; justify-content:center; margin:0 auto 16px;">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <h1 class="headline-md" style="margin-bottom:8px;">Akses Ditolak</h1>
+      <p class="body-md" style="color:var(--text-muted); margin-bottom:16px;" id="accessDeniedMessage">
+        Akun Google Anda belum terdaftar atau tidak aktif di sistem Si-MAKO.
+      </p>
+      <div style="background:var(--bg-subtle); border:1px solid var(--border-color); border-radius:10px; padding:12px; margin-bottom:20px; font-size:13px;">
+        Email Terdeteksi: <strong id="deniedUserEmail" style="color:var(--text-primary);">-</strong>
+      </div>
+      <p class="body-sm" style="color:var(--text-muted); margin-bottom:20px;">
+        Hubungi <strong>Owner Konveksi</strong> untuk mendaftarkan email Anda pada sheet <code>Pengguna</code> dengan status <code>Aktif = Ya</code>.
+      </p>
+      <div class="flex-row" style="justify-content:center; gap:10px;">
+        <button type="button" class="btn btn-secondary" onclick="logoutUser()">Ganti Email</button>
+        <button type="button" class="btn btn-primary" onclick="refreshAppData(true)">Coba Muat Ulang</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Aplikasi Utama Si-MAKO -->
+  <div id="appShell" class="app-shell">
+    <!-- Backdrop Mobile Sidebar -->
+    <div id="sidebarBackdrop" class="sidebar-backdrop" onclick="toggleMobileSidebar(false)"></div>
+
+    <!-- Persistent 260px Sidebar -->
+    <aside id="appSidebar" class="app-sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-logo-mark">SM</div>
+        <div class="brand-title-wrap">
+          <div class="brand-title">Si-MAKO</div>
+          <div class="brand-subtitle" id="sidebarBizName">Manajemen Konveksi</div>
+        </div>
+        <button type="button" class="sidebar-close-btn" onclick="toggleMobileSidebar(false)" aria-label="Tutup Menu">✕</button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-title">
+          <span>Operasional</span>
+        </div>
+
+        <button type="button" class="nav-item active" id="nav-dashboard" onclick="switchView('dashboard')">
+          <span class="nav-item-left">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+            <span>Dashboard</span>
+          </span>
+        </button>
+
+        <button type="button" class="nav-item" id="nav-order" onclick="switchView('order')">
+          <span class="nav-item-left">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M9 14l2 2 4-4"/></svg>
+            <span>Manajemen Order</span>
+          </span>
+          <span class="badge badge-info tnum" id="navBadgeActiveOrders">0</span>
+        </button>
+
+        <button type="button" class="nav-item" id="nav-pelanggan" onclick="switchView('pelanggan')">
+          <span class="nav-item-left">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span>Data Pelanggan</span>
+          </span>
+        </button>
+
+        <!-- Menu Khusus Owner (Disembunyikan untuk Admin sesuai Matriks RBAC) -->
+        <div id="ownerNavSection">
+          <div class="nav-section-title" style="margin-top:12px;">
+            <span>Kontrol Owner</span>
+            <span class="badge-owner-mini">
+              <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              Owner
+            </span>
+          </div>
+
+          <button type="button" class="nav-item" id="nav-hpp" onclick="switchView('hpp')">
+            <span class="nav-item-left">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="16" y1="14" x2="16" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/></svg>
+              <span>Kalkulator HPP</span>
+            </span>
+          </button>
+
+          <button type="button" class="nav-item" id="nav-stok" onclick="switchView('stok')">
+            <span class="nav-item-left">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+              <span>Stok Bahan</span>
+            </span>
+            <span class="badge badge-warning tnum" id="navBadgeLowStock" style="display:none;">0</span>
+          </button>
+
+          <button type="button" class="nav-item" id="nav-keuangan" onclick="switchView('keuangan')">
+            <span class="nav-item-left">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              <span>Keuangan & Piutang</span>
+            </span>
+          </button>
+
+          <button type="button" class="nav-item" id="nav-laporan" onclick="switchView('laporan')">
+            <span class="nav-item-left">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              <span>Laporan & Visualisasi</span>
+            </span>
+          </button>
+
+          <button type="button" class="nav-item" id="nav-pengaturan" onclick="switchView('pengaturan')">
+            <span class="nav-item-left">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              <span>Pengaturan & Pengguna</span>
+            </span>
+          </button>
+        </div>
+      </nav>
+
+      <!-- Profil Pengguna & Simulasi Peran RBAC -->
+      <div class="sidebar-footer">
+        <div class="user-profile-card">
+          <div class="user-avatar" id="sidebarUserAvatar">OW</div>
+          <div class="user-info">
+            <div class="user-name" id="sidebarUserName">Memuat Pengguna...</div>
+            <div class="user-email" id="sidebarUserEmail">-</div>
+          </div>
+          <span class="badge badge-owner" id="sidebarUserRoleBadge">Owner</span>
+        </div>
+        <div id="adminPreviewBanner" style="display:none; margin-top:10px; padding:8px 10px; background:var(--warning-soft); color:var(--warning-text); border-radius:8px; font-size:11px; font-weight:600; align-items:center; justify-content:space-between;">
+          <span>Pratinjau Admin</span>
+          <button type="button" class="btn btn-xs" style="height:22px; padding:0 8px; background:#FFF; color:var(--text-primary); border:1px solid var(--border-color);" onclick="handleRoleSimulationChange('Owner')">Kembali Owner</button>
+        </div>
+        <div class="sidebar-account-actions">
+          <button type="button" class="btn btn-ghost btn-xs" style="padding:0 8px;" onclick="openApiConfigModal()" title="Ubah URL Endpoint GAS API">Endpoint API</button>
+          <button type="button" class="btn btn-danger-soft btn-xs" style="padding:0 10px;" onclick="logoutUser()" title="Keluar atau ganti akun email">Keluar / Ganti Email</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Area Utama -->
+    <div class="app-main">
+      <!-- 64px Global Header -->
+      <header class="app-header">
+        <div class="header-left">
+          <button type="button" class="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Buka Menu">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          <div>
+            <h1 class="page-title" id="headerPageTitle">Dashboard Operasional</h1>
+          </div>
+        </div>
+
+        <div class="header-right">
+          <button type="button" id="themeToggleBtn" class="theme-toggle-btn" onclick="toggleTheme()" aria-label="Ganti ke tema gelap" aria-pressed="false" title="Ganti tema terang/gelap">
+            <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="refreshAppData(true)" title="Muat ulang data terbaru dari Google Sheets">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            <span class="header-refresh-label">Segarkan</span>
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" onclick="openOrderModal()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span>Order Baru</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Workspace Content -->
+      <main class="app-workspace">
+
+        <!-- ==================================================================
+             VIEW 1: DASHBOARD (F9 — Lengkap untuk Owner, Ringkas untuk Admin)
+             ================================================================== -->
+        <section id="view-dashboard" class="app-view">
+          <!-- Baris KPI Utama -->
+          <div id="dashboardKpiGrid" class="kpi-grid"></div>
+
+          <div class="grid-12">
+            <!-- Daftar Deadline Terdekat & Order Aktif (Semua Peran) -->
+            <div class="col-span-8">
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Prioritas Produksi & Deadline Terdekat</div>
+                    <div class="card-subtitle">Order berstatus Baru & Diproses diurutkan berdasarkan tenggat waktu terdekat</div>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-sm" onclick="switchView('order')">Lihat Semua Order</button>
+                </div>
+                <div class="card-body-flush table-responsive">
+                  <table class="data-table dash-priority-table">
+                    <thead>
+                      <tr>
+                        <th>No. Invoice</th>
+                        <th class="col-desktop-only">Pelanggan</th>
+                        <th class="col-desktop-only">Deadline</th>
+                        <th>Status</th>
+                        <th class="num-col">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody id="dashboardDeadlineTableBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Panel Kanan: Peringatan Stok Menipis (Owner) & Ringkasan Status Produksi -->
+            <div class="col-span-4">
+              <!-- Kartu Peringatan Stok Menipis (Khusus Owner) -->
+              <div id="dashboardOwnerStockCard" class="card" style="margin-bottom:24px;">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">
+                      <span>Peringatan Stok Bahan</span>
+                      <span class="badge-owner-mini">Owner</span>
+                    </div>
+                    <div class="card-subtitle">Bahan baku di bawah batas minimum</div>
+                  </div>
+                  <button type="button" class="btn btn-ghost btn-xs" onclick="switchView('stok')">Kelola Stok</button>
+                </div>
+                <div class="card-body" id="dashboardLowStockList"></div>
+              </div>
+
+              <!-- Ringkasan Pipeline Status Order -->
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Pipeline Status Konveksi</div>
+                    <div class="card-subtitle">Distribusi status seluruh order tercatat</div>
+                  </div>
+                </div>
+                <div class="card-body" id="dashboardStatusSummary"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================================================================
+             VIEW 2: MANAJEMEN ORDER (F3, F4, F8 — Owner & Admin)
+             ================================================================== -->
+        <section id="view-order" class="app-view" style="display:none;">
+          <div class="card">
+            <div class="card-header">
+              <div class="filter-toolbar">
+                <div class="search-box">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input type="text" id="searchOrderInput" class="form-control" placeholder="Cari pelanggan, no. invoice, atau produk..." oninput="debouncedRenderOrders()">
+                </div>
+                <select id="filterOrderStatus" class="form-select filter-select" onchange="renderOrdersTable()">
+                  <option value="ALL">Semua Status Order</option>
+                  <option value="Baru">Baru</option>
+                  <option value="Diproses">Diproses</option>
+                  <option value="Selesai">Selesai</option>
+                  <option value="Diambil">Diambil</option>
+                  <option value="Batal">Batal (Void)</option>
+                </select>
+                <select id="filterPaymentStatus" class="form-select filter-select" onchange="renderOrdersTable()">
+                  <option value="ALL">Semua Status Bayar</option>
+                  <option value="Belum Bayar">Belum Bayar</option>
+                  <option value="DP">DP (Sebagian)</option>
+                  <option value="Lunas">Lunas</option>
+                </select>
+                <input type="date" id="filterDeadlineStart" class="form-control filter-date" title="Deadline Dari" onchange="renderOrdersTable()">
+                <input type="date" id="filterDeadlineEnd" class="form-control filter-date" title="Deadline Sampai" onchange="renderOrdersTable()">
+                <button type="button" class="btn btn-ghost btn-sm" onclick="resetOrderFilters()">Reset</button>
+              </div>
+              <button type="button" class="btn btn-primary" onclick="openOrderModal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>Tambah Order</span>
+              </button>
+            </div>
+
+            <div class="card-body-flush table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>No. Invoice</th>
+                    <th class="col-desktop-only">Pelanggan</th>
+                    <th class="col-desktop-only">Deadline</th>
+                    <th class="col-desktop-only">Status Order</th>
+                    <th class="num-col">Tagihan & Status</th>
+                    <th class="num-col">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="ordersTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================================================================
+             VIEW 3: DATA PELANGGAN (F2 — Owner & Admin)
+             ================================================================== -->
+        <section id="view-pelanggan" class="app-view" style="display:none;">
+          <div class="card">
+            <div class="card-header">
+              <div class="search-box">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="searchPelangganInput" class="form-control" placeholder="Cari nama pelanggan atau nomor WhatsApp/telepon..." oninput="debouncedRenderCustomers()">
+              </div>
+              <button type="button" class="btn btn-primary" onclick="openCustomerModal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>Tambah Pelanggan</span>
+              </button>
+            </div>
+            <div class="card-body-flush table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Nama Pelanggan / Instansi</th>
+                    <th class="col-desktop-only">Kontak (WhatsApp)</th>
+                    <th class="num-col col-desktop-only">Total Order</th>
+                    <th class="num-col">Total Belanja</th>
+                    <th class="num-col">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="customersTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================================================================
+             VIEW 4: KALKULATOR HARGA & HPP (F5 — KHUSUS OWNER)
+             ================================================================== -->
+        <section id="view-hpp" class="app-view" style="display:none;">
+          <div class="grid-12">
+            <!-- Panel Kalkulator Interaktif -->
+            <div class="col-span-6">
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">
+                      <span>Kalkulator HPP & Harga Jual per Pcs</span>
+                      <span class="badge badge-owner">Khusus Owner</span>
+                    </div>
+                    <div class="card-subtitle">Terhubung langsung dengan harga bahan terbaru di Stok Bahan</div>
+                  </div>
+                  <button type="button" class="btn btn-ghost btn-sm" onclick="resetHppCalculator()">Reset</button>
+                </div>
+                <div class="card-body">
+                  <input type="hidden" id="hppIdInput">
+                  <div class="form-group">
+                    <label class="form-label form-label-between">
+                      <span>Nama Produk / Katalog Konveksi <span class="req">*</span></span>
+                      <span id="hppEditingBadge" class="badge badge-info" style="display:none;">Mode Edit HPP</span>
+                    </label>
+                    <input type="text" id="hppNamaProduk" class="form-control" placeholder="Contoh: Kaos Combed 30s Sablon Plastisol / Kemeja PDH Drill">
+                  </div>
+
+                  <div style="margin-bottom:16px;">
+                    <div class="flex-between" style="margin-bottom:8px;">
+                      <label class="form-label" style="margin:0;">Komponen Bahan Baku per Pcs</label>
+                      <button type="button" class="btn btn-secondary btn-xs" onclick="addHppMaterialRow()">+ Tambah Baris Bahan</button>
+                    </div>
+                    <div id="hppMaterialRowsContainer" style="display:flex; flex-direction:column; gap:8px;"></div>
+                  </div>
+
+                  <div class="grid-12" style="gap:12px;">
+                    <div class="col-span-6 form-group" style="margin-bottom:8px;">
+                      <label class="form-label">Ongkos Jahit / CMT per Pcs</label>
+                      <div class="input-rupiah-group">
+                        <span class="input-rupiah-prefix">Rp</span>
+                        <input type="number" id="hppOngkosJahit" value="10000" min="0" step="500" oninput="recalculateHppPreview()">
+                      </div>
+                    </div>
+                    <div class="col-span-6 form-group" style="margin-bottom:8px;">
+                      <label class="form-label">Ongkos Sablon / Bordir per Pcs</label>
+                      <div class="input-rupiah-group">
+                        <span class="input-rupiah-prefix">Rp</span>
+                        <input type="number" id="hppOngkosSablon" value="8000" min="0" step="500" oninput="recalculateHppPreview()">
+                      </div>
+                    </div>
+                    <div class="col-span-6 form-group">
+                      <label class="form-label">Biaya Lain (Kemasan, QC, Benang)</label>
+                      <div class="input-rupiah-group">
+                        <span class="input-rupiah-prefix">Rp</span>
+                        <input type="number" id="hppBiayaLain" value="2500" min="0" step="500" oninput="recalculateHppPreview()">
+                      </div>
+                    </div>
+                    <div class="col-span-6 form-group">
+                      <label class="form-label" title="Persentase kenaikan di atas HPP (Harga Jual = HPP × (1 + Markup%))">Markup dari HPP (%)</label>
+                      <input type="number" id="hppMarginPersen" class="form-control tnum" value="35" min="0" max="500" step="1" oninput="recalculateHppPreview()">
+                    </div>
+                  </div>
+
+                  <!-- Ringkasan Hasil Hitung HPP -->
+                  <div style="background:var(--primary-soft); border:1px solid var(--primary-border); border-radius:12px; padding:16px; margin-top:8px;">
+                    <div class="flex-between" style="margin-bottom:8px; font-size:13px;">
+                      <span style="color:var(--text-secondary);">Total Biaya Bahan Baku / Pcs:</span>
+                      <strong class="tnum" id="hppPreviewBahanCost">Rp 0</strong>
+                    </div>
+                    <div class="flex-between" style="margin-bottom:8px; font-size:14px;">
+                      <span style="color:var(--text-primary); font-weight:600;">HPP Produksi per Pcs:</span>
+                      <strong class="tnum" style="font-size:16px;" id="hppPreviewTotalHpp">Rp 0</strong>
+                    </div>
+                    <div class="flex-between" style="padding-top:10px; border-top:1px solid var(--primary-border);">
+                      <div>
+                        <div style="font-size:12px; font-weight:600; color:var(--primary);">REKOMENDASI HARGA JUAL / PCS</div>
+                        <div style="font-size:11px; color:var(--text-muted);">Estimasi Laba: <strong class="tnum" id="hppPreviewProfitPerPcs" style="color:var(--success-text);">Rp 0</strong> / pcs • Margin Riil: <strong class="tnum" id="hppPreviewRealMargin">0%</strong></div>
+                      </div>
+                      <div class="numeric-lg" style="color:var(--primary);" id="hppPreviewSellingPrice">Rp 0</div>
+                    </div>
+                  </div>
+
+                  <div class="flex-row" style="justify-content:flex-end; margin-top:16px;">
+                    <button type="button" class="btn btn-primary" onclick="submitHppCalculation()">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                      <span>Simpan Kalkulasi HPP</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Riwayat Kalkulasi HPP Tersimpan -->
+            <div class="col-span-6">
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Katalog & Riwayat Kalkulasi HPP</div>
+                    <div class="card-subtitle">Acuan harga jual cepat saat menginput order pelanggan</div>
+                  </div>
+                </div>
+                <div class="card-body-flush table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Nama Produk</th>
+                        <th class="num-col col-desktop-only">HPP / Pcs</th>
+                        <th class="num-col">Harga Jual</th>
+                        <th class="num-col col-desktop-only">Laba / Pcs</th>
+                        <th class="num-col">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody id="hppHistoryTableBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================================================================
+             VIEW 5: STOK BAHAN & MUTASI (F6 — KHUSUS OWNER)
+             ================================================================== -->
+        <section id="view-stok" class="app-view" style="display:none;">
+          <div class="card" style="margin-bottom:24px;">
+            <div class="card-header">
+              <div class="flex-row" style="flex:1;">
+                <div class="search-box">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input type="text" id="searchStokInput" class="form-control" placeholder="Cari nama kain, benang, tinta, atau ID bahan..." oninput="debouncedRenderMaterials()">
+                </div>
+                <select id="filterStokStatus" class="form-select filter-select" onchange="renderMaterialsView()">
+                  <option value="ALL">Semua Status Stok</option>
+                  <option value="LOW">Stok Menipis (<= Min)</option>
+                  <option value="SAFE">Stok Aman</option>
+                </select>
+              </div>
+              <div class="flex-row">
+                <button type="button" class="btn btn-secondary" onclick="openMutationModal()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                  <span>Catat Stok Masuk / Keluar</span>
+                </button>
+                <button type="button" class="btn btn-primary" onclick="openMaterialModal()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  <span>Tambah Bahan</span>
+                </button>
+              </div>
+            </div>
+            <div class="card-body-flush table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Nama Bahan Baku</th>
+                    <th class="num-col">Stok Saat Ini</th>
+                    <th class="num-col col-desktop-only">Harga / Satuan</th>
+                    <th class="col-desktop-only">Status</th>
+                    <th class="num-col">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="materialsTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Tabel Riwayat Mutasi Stok -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Riwayat Mutasi Stok Masuk & Keluar</div>
+                <div class="card-subtitle">Pembelian stok masuk otomatis memperbarui harga per satuan bahan</div>
+              </div>
+            </div>
+            <div class="card-body-flush table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th class="col-desktop-only">Tanggal</th>
+                    <th>Bahan Baku</th>
+                    <th class="col-desktop-only">Jenis Mutasi</th>
+                    <th class="num-col">Jumlah</th>
+                    <th class="num-col">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="mutationsTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================================================================
+             VIEW 6: KEUANGAN DASAR & PIUTANG (F7 — KHUSUS OWNER)
+             ================================================================== -->
+        <section id="view-keuangan" class="app-view" style="display:none;">
+          <!-- Filter Periode Laporan Keuangan Bulanan -->
+          <div class="flex-between" style="margin-bottom:20px;">
+            <div class="flex-row">
+              <span class="label-md">Periode Laporan Bulanan:</span>
+              <select id="financeMonthSelect" class="form-select" style="width:150px;" onchange="renderFinanceView()">
+                <option value="ALL">Semua Bulan</option>
+                <option value="01">Januari</option>
+                <option value="02">Februari</option>
+                <option value="03">Maret</option>
+                <option value="04">April</option>
+                <option value="05">Mei</option>
+                <option value="06">Juni</option>
+                <option value="07">Juli</option>
+                <option value="08">Agustus</option>
+                <option value="09">September</option>
+                <option value="10" selected>Oktober</option>
+                <option value="11">November</option>
+                <option value="12">Desember</option>
+              </select>
+              <select id="financeYearSelect" class="form-select" style="width:110px;" onchange="renderFinanceView()">
+                <option value="2026" selected>2026</option>
+                <option value="2025">2025</option>
+              </select>
+            </div>
+            <button type="button" class="btn btn-primary" onclick="openExpenseModal()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span>Catat Pengeluaran</span>
+            </button>
+          </div>
+
+          <!-- Ringkasan Keuangan Bulanan -->
+          <div id="financeKpiGrid" class="kpi-grid"></div>
+
+          <!-- Sub-Tab Keuangan: Piutang | Pemasukan | Pengeluaran -->
+          <div class="tabs-bar">
+            <button type="button" class="tab-btn active" id="tabBtnPiutang" onclick="switchFinanceTab('piutang')">Daftar Piutang Pelanggan</button>
+            <button type="button" class="tab-btn" id="tabBtnPemasukan" onclick="switchFinanceTab('pemasukan')">Pemasukan (DP & Pelunasan)</button>
+            <button type="button" class="tab-btn" id="tabBtnPengeluaran" onclick="switchFinanceTab('pengeluaran')">Pengeluaran Operasional</button>
+          </div>
+
+          <!-- Sub-View Piutang -->
+          <div id="financeSubPiutang" class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Daftar Piutang Order Belum Lunas</div>
+                <div class="card-subtitle">Memantau sisa tagihan beserta umur piutang sejak tanggal order</div>
+              </div>
+            </div>
+            <div class="card-body-flush table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>No. Invoice</th>
+                    <th class="col-desktop-only">Pelanggan</th>
+                    <th class="num-col col-desktop-only">Umur Piutang</th>
+                    <th class="num-col">Sisa Tagihan</th>
+                    <th class="num-col">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="receivablesTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Sub-View Pemasukan -->
+          <div id="financeSubPemasukan" class="card" style="display:none;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Buku Kas Pemasukan (Otomatis dari Pembayaran Order)</div>
+                <div class="card-subtitle">Seluruh transaksi DP, cicilan, dan pelunasan yang masuk</div>
+              </div>
+            </div>
+            <div class="card-body-flush table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th class="col-desktop-only">Tanggal</th>
+                    <th>No. Invoice / Pelanggan</th>
+                    <th class="col-desktop-only">Jenis & Metode</th>
+                    <th class="num-col">Jumlah Masuk</th>
+                    <th class="num-col">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="incomeTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Sub-View Pengeluaran -->
+          <div id="financeSubPengeluaran" class="card" style="display:none;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Buku Kas Pengeluaran Operasional & Produksi</div>
+                <div class="card-subtitle">Belanja bahan, upah jahit/obras, vendor sablon/bordir, dan listrik</div>
+              </div>
+            </div>
+            <div class="card-body-flush table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th class="col-desktop-only">Tanggal</th>
+                    <th>Kategori</th>
+                    <th class="col-desktop-only">Keterangan</th>
+                    <th class="num-col">Jumlah Keluar</th>
+                    <th class="num-col">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="expensesTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================================================================
+             VIEW 7: LAPORAN & VISUALISASI (F10 — KHUSUS OWNER)
+             ================================================================== -->
+        <section id="view-laporan" class="app-view" style="display:none;">
+          <div class="grid-12" style="margin-bottom:24px;">
+            <div class="col-span-4">
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Tren Omzet Order per Bulan</div>
+                    <div class="card-subtitle">Total nilai kontrak order (Rp)</div>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="chart-box">
+                    <canvas id="chartOmzetCanvas" role="img" aria-label="Grafik batang omzet order per bulan, 6 bulan terakhir"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-span-4">
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Pemasukan vs Pengeluaran Kas</div>
+                    <div class="card-subtitle">Perbandingan arus kas masuk & keluar</div>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="chart-box">
+                    <canvas id="chartCashflowCanvas" role="img" aria-label="Grafik batang pemasukan dan pengeluaran per bulan, 6 bulan terakhir"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-span-4">
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Jumlah Order per Status</div>
+                    <div class="card-subtitle">Komposisi tahapan produksi saat ini</div>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="chart-box">
+                    <canvas id="chartOrderStatusCanvas" role="img" aria-label="Grafik donat jumlah order per status produksi"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tabel Laporan Master dengan Filter, Sortir, & Ekspor CSV -->
+          <div class="card">
+            <div class="card-header">
+              <div class="filter-toolbar">
+                <select id="reportDatasetSelect" class="form-select filter-select" style="font-weight:600;" onchange="handleReportDatasetChange()">
+                  <option value="orders">Tabel Rekap Order</option>
+                  <option value="payments">Tabel Rekap Pembayaran</option>
+                  <option value="expenses">Tabel Rekap Pengeluaran</option>
+                </select>
+                <div class="search-box" style="min-width:190px; max-width:240px;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input type="text" id="reportSearchInput" class="form-control" placeholder="Cari kata kunci..." oninput="debouncedRenderReport()">
+                </div>
+                <select id="reportCustomerFilter" class="form-select filter-select" onchange="renderReportTable()">
+                  <option value="ALL">Semua Pelanggan</option>
+                </select>
+                <select id="reportStatusFilter" class="form-select filter-select" onchange="renderReportTable()">
+                  <option value="ALL">Semua Status</option>
+                </select>
+                <input type="date" id="reportDateStart" class="form-control filter-date" title="Dari Tanggal" onchange="renderReportTable()">
+                <input type="date" id="reportDateEnd" class="form-control filter-date" title="Sampai Tanggal" onchange="renderReportTable()">
+                <select id="reportSortBy" class="form-select filter-select" onchange="renderReportTable()">
+                  <option value="date_desc">Tanggal (Terbaru)</option>
+                  <option value="date_asc">Tanggal (Terlama)</option>
+                  <option value="amount_desc">Nominal (Tertinggi)</option>
+                  <option value="amount_asc">Nominal (Terendah)</option>
+                </select>
+              </div>
+              <button type="button" class="btn btn-secondary" onclick="exportCurrentReportCsv()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>Ekspor CSV</span>
+              </button>
+            </div>
+            <div class="card-body-flush table-responsive">
+              <table class="data-table">
+                <thead id="reportMasterTableHead"></thead>
+                <tbody id="reportMasterTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================================================================
+             VIEW 8: PENGATURAN & MANAJEMEN PENGGUNA (F1 — KHUSUS OWNER)
+             ================================================================== -->
+        <section id="view-pengaturan" class="app-view" style="display:none;">
+          <div class="grid-12">
+            <!-- Pengaturan Identitas Konveksi & Nomor Invoice -->
+            <div class="col-span-6">
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Identitas Usaha & Format Invoice</div>
+                    <div class="card-subtitle">Tampil otomatis pada kop cetak Invoice A4 dan Nota Ringkas</div>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="form-group">
+                    <label class="form-label">Nama Usaha Konveksi</label>
+                    <input type="text" id="setNamaUsaha" class="form-control">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Alamat Lengkap Workshop</label>
+                    <textarea id="setAlamat" class="form-control" rows="2"></textarea>
+                  </div>
+                  <div class="grid-12" style="gap:12px;">
+                    <div class="col-span-6 form-group">
+                      <label class="form-label">Kontak (WhatsApp / Telepon)</label>
+                      <input type="text" id="setKontak" class="form-control">
+                    </div>
+                    <div class="col-span-6 form-group">
+                      <label class="form-label">Format Nomor Invoice</label>
+                      <input type="text" id="setFormatInvoice" class="form-control" placeholder="INV/{YYYY}/{MM}/{NNN}">
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Link Logo Usaha (Opsional URL Gambar / Drive)</label>
+                    <input type="text" id="setLogo" class="form-control" placeholder="https://...">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Informasi Rekening Pembayaran</label>
+                    <textarea id="setRekening" class="form-control" rows="2" placeholder="BCA 1234567890 a.n. Nama Usaha"></textarea>
+                  </div>
+                  <div class="flex-row" style="justify-content:flex-end;">
+                    <button type="button" class="btn btn-primary" onclick="submitSettings()">Simpan Pengaturan</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Utilitas Sistem & Pemeliharaan Database (Khusus Owner) -->
+              <div class="card" style="margin-top:24px;">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Pemeliharaan Database & Pratinjau Hak Akses</div>
+                    <div class="card-subtitle">Alat bantu verifikasi skema 11 Sheet Google Sheets & simulasi tampilan peran Admin</div>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="flex-between" style="padding-bottom:14px; margin-bottom:14px; border-bottom:1px solid var(--border-subtle);">
+                    <div>
+                      <div class="label-md">Isi Data Demo / Contoh Konveksi (Opsional — UAT)</div>
+                      <div class="body-sm" style="color:var(--text-muted);">Mengisi contoh pelanggan, bahan, HPP, & order hanya pada tabel yang masih kosong.</div>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btnSeedData" onclick="handleSeedDatabase()">Isi Data Demo</button>
+                  </div>
+                  <div class="flex-between" style="padding-bottom:14px; margin-bottom:14px; border-bottom:1px solid var(--border-subtle);">
+                    <div>
+                      <div class="label-md">Sinkronkan Ulang Tagihan & Pembayaran Order</div>
+                      <div class="body-sm" style="color:var(--text-muted);">Hitung ulang Total Harga, DP/Dibayar, & Sisa Tagihan jika sheet diedit manual.</div>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="handleRecalculateOrderFinancials()">Sinkronkan Tagihan</button>
+                  </div>
+                  <div class="flex-between" id="roleSimContainer">
+                    <div>
+                      <div class="label-md">Uji Tampilan Antarmuka Peran (RBAC Preview)</div>
+                      <div class="body-sm" style="color:var(--text-muted);">Simulasikan tampilan layar sebagaimana dilihat oleh staf Admin.</div>
+                    </div>
+                    <select id="roleSimulatorSelect" class="form-select" style="width:180px;" onchange="handleRoleSimulationChange(this.value)">
+                      <option value="Owner">Mode Owner (Penuh)</option>
+                      <option value="Admin">Mode Admin (Terbatas)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Kelola Daftar Pengguna RBAC -->
+            <div class="col-span-6">
+              <div class="card" style="margin-bottom:24px;">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Daftar Pengguna & Hak Akses (RBAC)</div>
+                    <div class="card-subtitle">Hanya akun Google berstatus Aktif = Ya yang diizinkan mengakses Si-MAKO</div>
+                  </div>
+                  <button type="button" class="btn btn-primary btn-sm" onclick="openUserModal()">+ Tambah Pengguna</button>
+                </div>
+                <div class="card-body-flush table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Pengguna</th>
+                        <th>Peran</th>
+                        <th class="col-desktop-only">Status</th>
+                        <th class="num-col">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody id="usersTableBody"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Log Aktivitas Audit -->
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Log Aktivitas Terbaru</div>
+                    <div class="card-subtitle">Jejak audit perubahan data oleh Owner & Admin</div>
+                  </div>
+                </div>
+                <div class="card-body-flush table-responsive" style="max-height:280px; overflow-y:auto;">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Waktu</th>
+                        <th>Pengguna</th>
+                        <th>Aksi</th>
+                        <th>ID Terkait</th>
+                      </tr>
+                    </thead>
+                    <tbody id="activityLogsTableBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODALS (Layer 3 Elevation — Tanpa alert/confirm bawaan browser)
+       ======================================================================== -->
+
+  <!-- 1. Modal Tambah / Ubah Pelanggan -->
+  <div id="customerModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="customerModalTitle">
+    <div class="modal-container modal-sm">
+      <div class="modal-header">
+        <h3 class="modal-title" id="customerModalTitle">Tambah Pelanggan Baru</h3>
+        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('customerModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="custIdInput">
+        <div id="duplicatePhoneWarning" style="display:none; background:var(--warning-soft); color:var(--warning-text); border:1px solid var(--warning-border); border-radius:10px; padding:12px; margin-bottom:16px; font-size:12px;">
+          <div id="duplicatePhoneText" style="font-weight:600; margin-bottom:6px;">Nomor kontak sudah terdaftar.</div>
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="checkbox" id="custConfirmDuplicateCheck">
+            <span>Tetap simpan pelanggan ini meskipun nomor kontak sama</span>
+          </label>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nama Pelanggan / Instansi <span class="req">*</span></label>
+          <input type="text" id="custNamaInput" class="form-control" placeholder="Contoh: BEM Universitas Padjadjaran">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Kontak WhatsApp / Telepon <span class="req">*</span></label>
+          <input type="text" id="custKontakInput" class="form-control tnum" placeholder="Contoh: 081223456789" oninput="checkCustomerPhoneDuplicate()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Alamat Pengiriman / Domisili</label>
+          <textarea id="custAlamatInput" class="form-control" rows="2" placeholder="Alamat lengkap pelanggan"></textarea>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Catatan Pelanggan</label>
+          <textarea id="custCatatanInput" class="form-control" rows="2" placeholder="Preferensi bahan, ukuran standar, dll."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('customerModal')">Batal</button>
+        <button type="button" class="btn btn-primary" onclick="submitCustomerForm()">Simpan Pelanggan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Modal Detail & Riwayat Order Pelanggan -->
+  <div id="customerDetailModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="custDetailTitle">
+    <div class="modal-container modal-lg">
+      <div class="modal-header">
+        <h3 class="modal-title" id="custDetailTitle">Detail Pelanggan</h3>
+        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('customerDetailModal')">✕</button>
+      </div>
+      <div class="modal-body" id="custDetailBody"></div>
+      <div class="modal-footer" id="custDetailFooter">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('customerDetailModal')">Tutup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Modal Buat / Edit Order (Multi-Item + DP + Bukti Transfer) -->
+  <div id="orderModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="orderModalTitle">
+    <div class="modal-container modal-lg">
+      <div class="modal-header">
+        <div>
+          <h3 class="modal-title" id="orderModalTitle">Buat Order Konveksi Baru</h3>
+          <div class="card-subtitle">Isi data pelanggan, rincian item produksi, dan pembayaran DP awal</div>
+        </div>
+        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('orderModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="orderIdInput">
+
+        <!-- Baris 1: Pelanggan & Tanggal -->
+        <div class="grid-12" style="gap:16px; margin-bottom:4px;">
+          <div class="col-span-6 form-group">
+            <label class="form-label form-label-between">
+              <span>Pilih / Cari Pelanggan <span class="req">*</span></span>
+              <button type="button" class="btn btn-ghost btn-xs" style="height:20px; padding:0 6px; font-size:11px;" onclick="closeModal('orderModal'); openCustomerModal();">+ Pelanggan Baru</button>
+            </label>
+            <div style="display:grid; grid-template-columns: 1fr 1.5fr; gap:8px;">
+              <input type="text" id="orderCustomerSearchInput" class="form-control" placeholder="Ketik nama/WA..." oninput="filterOrderCustomerDropdown(this.value)">
+              <select id="orderPelangganSelect" class="form-select"></select>
+            </div>
+          </div>
+          <div class="col-span-3 form-group">
+            <label class="form-label">Tanggal Order</label>
+            <input type="date" id="orderTanggalInput" class="form-control">
+          </div>
+          <div class="col-span-3 form-group">
+            <label class="form-label">Deadline Selesai <span class="req">*</span></label>
+            <input type="date" id="orderDeadlineInput" class="form-control">
+          </div>
+        </div>
+
+        <!-- Baris 2: Daftar Item Order Dinamis -->
+        <div style="margin-bottom:14px;">
+          <div class="flex-between" style="margin-bottom:10px;">
+            <label class="form-label" style="margin:0;">Rincian Item Produk Konveksi <span class="req">*</span></label>
+            <div class="flex-row">
+              <select id="orderHppRefSelect" class="form-select" style="height:32px; width:auto; min-width:230px; font-size:12px;" onchange="applyHppReferenceToNewItem(this.value)">
+                <option value="">+ Isi dari Acuan Harga Katalog...</option>
+              </select>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="addOrderItemRow()">+ Tambah Baris Item</button>
+            </div>
+          </div>
+          <div class="order-items-wrapper">
+            <div class="order-items-header">
+              <div>Jenis Produk / Model</div>
+              <div>Rincian Ukuran (Size)</div>
+              <div>Qty (Pcs)</div>
+              <div>Harga Satuan</div>
+              <div style="text-align:right; padding-right:6px;">Subtotal</div>
+              <div></div>
+            </div>
+            <div id="orderItemsContainer"></div>
+          </div>
+        </div>
+
+        <!-- Baris 3: Bagian DP Awal (Hanya saat tambah order baru) -->
+        <div id="orderInitialDpSection" style="background:var(--bg-subtle); border:1px solid var(--border-color); border-radius:12px; padding:12px 16px; margin-bottom:14px;">
+          <div class="label-md" style="margin-bottom:12px; color:var(--primary); display:flex; align-items:center; gap:6px;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+            <span>Pembayaran DP Awal (Opsional saat Order Masuk)</span>
+          </div>
+          <div class="grid-12" style="gap:16px;">
+            <div class="col-span-4 form-group" style="margin-bottom:0;">
+              <label class="form-label">Nominal DP Masuk</label>
+              <div class="input-rupiah-group">
+                <span class="input-rupiah-prefix">Rp</span>
+                <input type="number" id="orderDpInput" value="0" min="0" step="10000" oninput="recalculateOrderModalSummary()">
+              </div>
+            </div>
+            <div class="col-span-4 form-group" style="margin-bottom:0;">
+              <label class="form-label">Metode Pembayaran</label>
+              <select id="orderMetodeBayarInput" class="form-select">
+                <option value="Transfer BCA">Transfer BCA</option>
+                <option value="Transfer Mandiri">Transfer Mandiri</option>
+                <option value="Transfer BRI">Transfer BRI</option>
+                <option value="QRIS">QRIS</option>
+                <option value="Tunai">Tunai</option>
+              </select>
+            </div>
+            <div class="col-span-4 form-group" style="margin-bottom:0;">
+              <label class="form-label">Bukti Transfer (Maks 5 MB)</label>
+              <input type="file" id="orderBuktiFileInput" class="form-control" accept="image/jpeg,image/png,application/pdf" onchange="handleFileInputPreview(this, 'orderBuktiInfo')">
+              <div id="orderBuktiInfo" class="body-sm" style="color:var(--text-muted); margin-top:2px;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Baris 4: Catatan Spesifikasi Produksi (Kiri 7 Kolom) & Kartu Ringkasan Tagihan (Kanan 5 Kolom) -->
+        <div class="grid-12" style="gap:16px; align-items:stretch;">
+          <div class="col-span-7 form-group" style="margin-bottom:0; display:flex; flex-direction:column;">
+            <label class="form-label">Catatan Spesifikasi Produksi (Sablon, Bordir, Bahan, Jahitan)</label>
+            <textarea id="orderCatatanInput" class="form-control" style="flex:1; min-height:112px;" placeholder="Contoh: Sablon plastisol 3 warna depan, bordir lengan kanan, jahit rantai pundak..."></textarea>
+          </div>
+          <div class="col-span-5" style="display:flex; flex-direction:column;">
+            <label class="form-label" style="margin-bottom:6px;">Ringkasan Kalkulasi Tagihan</label>
+            <div style="background:var(--primary-soft); border:1px solid var(--primary-border); border-radius:12px; padding:16px 18px; flex:1; display:flex; flex-direction:column; justify-content:space-between; gap:8px;">
+              <div class="flex-between">
+                <span class="body-sm" style="color:var(--text-secondary);">Total Harga Order:</span>
+                <strong class="numeric-md tnum" id="orderSummaryTotal">Rp 0</strong>
+              </div>
+              <div class="flex-between">
+                <span class="body-sm" style="color:var(--text-secondary);">Total DP / Dibayar:</span>
+                <strong class="numeric-md tnum" style="color:var(--success-text);" id="orderSummaryPaid">Rp 0</strong>
+              </div>
+              <div class="flex-between" style="padding-top:10px; border-top:1px solid var(--primary-border);">
+                <span class="label-md" style="color:var(--text-primary);">Sisa Tagihan:</span>
+                <strong class="tnum" style="font-size:18px; font-weight:700; color:var(--danger-text);" id="orderSummaryRemaining">Rp 0</strong>
+              </div>
+              <div class="flex-between" style="padding-top:4px;">
+                <span class="body-sm" style="color:var(--text-secondary);">Status Bayar Otomatis:</span>
+                <span id="orderSummaryStatusBayar" class="badge badge-danger">Belum Bayar</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('orderModal')">Batal</button>
+        <button type="button" class="btn btn-primary" onclick="submitOrderForm()">Simpan Order</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Modal Detail Order & Riwayat Pembayaran -->
+  <div id="orderDetailModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="orderDetailModalTitle">
+    <div class="modal-container modal-lg">
+      <div class="modal-header">
+        <h3 class="modal-title" id="orderDetailModalTitle">Detail Order</h3>
+        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('orderDetailModal')">✕</button>
+      </div>
+      <div class="modal-body" id="orderDetailModalBody"></div>
+      <div class="modal-footer" id="orderDetailModalFooter"></div>
+    </div>
+  </div>
+
+  <!-- 5. Modal Tambah Pembayaran / Pelunasan (F4) -->
+  <div id="paymentModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="paymentModalTitle">
+    <div class="modal-container modal-sm">
+      <div class="modal-header">
+        <h3 class="modal-title" id="paymentModalTitle">Catat Pembayaran Order</h3>
+        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('paymentModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="payOrderIdInput">
+        <div style="background:var(--bg-subtle); border:1px solid var(--border-color); border-radius:10px; padding:12px; margin-bottom:16px;">
+          <div class="flex-between" style="margin-bottom:4px;">
+            <span class="body-sm" style="color:var(--text-muted);">No. Invoice:</span>
+            <strong id="payModalInvoiceNo" class="tnum">-</strong>
+          </div>
+          <div class="flex-between" style="margin-bottom:4px;">
+            <span class="body-sm" style="color:var(--text-muted);">Pelanggan:</span>
+            <strong id="payModalCustomerName">-</strong>
+          </div>
+          <div class="flex-between" style="padding-top:6px; border-top:1px dashed var(--border-color);">
+            <span class="label-md">Sisa Tagihan Maksimal:</span>
+            <strong id="payModalMaxRemaining" class="tnum" style="color:var(--danger-text); font-size:15px;">Rp 0</strong>
+          </div>
+        </div>
+
+        <div class="grid-12" style="gap:12px;">
+          <div class="col-span-6 form-group">
+            <label class="form-label">Tanggal Bayar</label>
+            <input type="date" id="payTanggalInput" class="form-control">
+          </div>
+          <div class="col-span-6 form-group">
+            <label class="form-label">Jenis Pembayaran</label>
+            <select id="payJenisInput" class="form-select">
+              <option value="Pelunasan">Pelunasan</option>
+              <option value="Cicilan">Cicilan / Termin</option>
+              <option value="DP">DP</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label form-label-between">
+            <span>Jumlah Pembayaran <span class="req">*</span></span>
+            <button type="button" class="btn btn-ghost btn-xs" style="height:20px; padding:0 6px; font-size:11px;" onclick="fillFullRemainingPayment()">Isi Penuh Pelunasan</button>
+          </label>
+          <div class="input-rupiah-group">
+            <span class="input-rupiah-prefix">Rp</span>
+            <input type="number" id="payJumlahInput" min="1" step="1000">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Metode Pembayaran</label>
+          <select id="payMetodeInput" class="form-select">
+            <option value="Transfer BCA">Transfer BCA</option>
+            <option value="Transfer Mandiri">Transfer Mandiri</option>
+            <option value="Transfer BRI">Transfer BRI</option>
+            <option value="QRIS">QRIS</option>
+            <option value="Tunai">Tunai</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Unggah Bukti Transfer (JPG/PNG/PDF, Maks 5 MB)</label>
+          <input type="file" id="payBuktiFileInput" class="form-control" style="padding:6px;" accept="image/jpeg,image/png,application/pdf" onchange="handleFileInputPreview(this, 'payBuktiInfo')">
+          <div id="payBuktiInfo" class="body-sm" style="color:var(--text-muted);"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('paymentModal')">Batal</button>
+        <button type="button" class="btn btn-primary" onclick="submitPaymentForm()">Simpan Pembayaran</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. Modal Pratinjau & Cetak Invoice / Nota (F8) -->
+  <div id="invoiceModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="invoiceModalTitle">
+    <div class="modal-container modal-lg">
+      <div class="modal-header">
+        <div class="flex-row">
+          <h3 class="modal-title" id="invoiceModalTitle">Cetak / Unduh Invoice & Nota</h3>
+          <div class="tabs-bar" style="margin:0 0 0 12px;">
+            <button type="button" class="tab-btn active" id="btnInvLayoutA4" onclick="switchInvoiceLayout('A4')">Invoice A4</button>
+            <button type="button" class="tab-btn" id="btnInvLayoutNota" onclick="switchInvoiceLayout('NOTA')">Nota Ringkas</button>
+          </div>
+        </div>
+        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('invoiceModal')">✕</button>
+      </div>
+      <div class="modal-body" style="background:var(--bg-canvas);">
+        <div id="printableInvoiceArea" class="invoice-paper"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('invoiceModal')">Tutup</button>
+        <button type="button" class="btn btn-secondary" onclick="window.print()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          <span>Cetak Langsung</span>
+        </button>
+        <button type="button" class="btn btn-primary" id="btnDownloadServerPdf" onclick="downloadInvoicePdfFromServer()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Unduh PDF Resmi</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. Modal Tambah / Ubah Master Bahan Baku (F6) -->
+  <div id="materialModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="materialModalTitle">
+    <div class="modal-container modal-sm">
+      <div class="modal-header">
+        <h3 class="modal-title" id="materialModalTitle">Tambah Bahan Baku</h3>
+        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('materialModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="matIdInput">
+        <div class="form-group">
+          <label class="form-label">Nama Bahan Baku <span class="req">*</span></label>
+          <input type="text" id="matNamaInput" class="form-control" placeholder="Contoh: Cotton Combed 30s Reactive Hitam">
+        </div>
+        <div class="grid-12" style="gap:12px;">
+          <div class="col-span-6 form-group">
+            <label class="form-label">Satuan Ukur <span class="req">*</span></label>
+            <select id="matSatuanInput" class="form-select">
+              <option value="Kg">Kg</option>
+              <option value="Meter">Meter</option>
+              <option value="Yard">Yard</option>
+              <option value="Roll">Roll</option>
+              <option value="Cones">Cones</option>
+              <option value="Pcs">Pcs</option>
+              <option value="Lusin">Lusin</option>
+            </select>
+          </div>
+          <div class="col-span-6 form-group">
+            <label class="form-label">Batas Stok Minimum</label>
+            <input type="number" id="matStokMinInput" class="form-control tnum" value="15" min="0" step="1">
+          </div>
+        </div>
+        <div class="grid-12" style="gap:12px;">
+          <div class="col-span-6 form-group" style="margin-bottom:0;">
+            <label class="form-label" id="matStokInitialLabel">Stok Awal</label>
+            <input type="number" id="matStokSaatIniInput" class="form-control tnum" value="0" min="0" step="0.5">
+            <div id="matStokLockNote" class="body-sm" style="display:none; color:var(--text-muted); font-size:11px;">Stok dihitung dari Mutasi Masuk/Keluar.</div>
+          </div>
+          <div class="col-span-6 form-group" style="margin-bottom:0;">
+            <label class="form-label">Harga Beli per Satuan</label>
+            <div class="input-rupiah-group">
+              <span class="input-rupiah-prefix">Rp</span>
+              <input type="number" id="matHargaInput" value="100000" min="0" step="500">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('materialModal')">Batal</button>
+        <button type="button" class="btn btn-primary" onclick="submitMaterialForm()">Simpan Bahan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. Modal Catat Mutasi Stok Masuk / Keluar (F6) -->
+  <div id="mutationModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="mutationModalTitle">
+    <div class="modal-container modal-sm">
+      <div class="modal-header">
+        <h3 class="modal-title" id="mutationModalTitle">Catat Mutasi Stok Bahan</h3>
+        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('mutationModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Pilih Bahan Baku <span class="req">*</span></label>
+          <select id="mutBahanSelect" class="form-select" onchange="handleMutationMaterialChange(this.value)"></select>
+        </div>
+        <div class="grid-12" style="gap:12px;">
+          <div class="col-span-6 form-group">
+            <label class="form-label">Jenis Mutasi</label>
+            <select id="mutJenisSelect" class="form-select" onchange="toggleMutationPriceField()">
+              <option value="Masuk">Stok Masuk (Pembelian)</option>
+              <option value="Keluar">Stok Keluar (Produksi)</option>
+              <option value="Koreksi">Koreksi (Stok Opname Fisik)</option>
+            </select>
+          </div>
+          <div class="col-span-6 form-group">
+            <label class="form-label">Tanggal Mutasi</label>
+            <input type="date" id="mutTanggalInput" class="form-control">
+          </div>
+        </div>
+        <div class="grid-12" style="gap:12px;">
+          <div class="col-span-6 form-group">
+            <label class="form-label"><span id="mutJumlahTitleLabel">Jumlah</span> (<span id="mutSatuanLabel">Satuan</span>) <span class="req">*</span></label>
+            <input type="number" id="mutJumlahInput" class="form-control tnum" value="1" min="0.1" step="0.5">
+          </div>
+          <div class="col-span-6 form-group" id="mutHargaBeliGroup">
+            <label class="form-label">Harga Beli / Satuan Terbaru</label>
+            <div class="input-rupiah-group">
+              <span class="input-rupiah-prefix">Rp</span>
+              <input type="number" id="mutHargaBeliInput" value="0" min="0" step="500">
+            </div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Keterangan Penggunaan / Supplier</label>
+          <input type="text" id="mutKeteranganInput" class="form-control" placeholder="Contoh: Restock dari Toko Kain Cigondewah / Produksi ORD-001">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('mutationModal')">Batal</button>
+        <button type="button" class="btn btn-primary" onclick="submitMutationForm()">Simpan Mutasi</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 9. Modal Catat Pengeluaran Operasional (F7) -->
+  <div id="expenseModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="expenseModalTitle">
+    <div class="modal-container modal-sm">
+      <div class="modal-header">
+        <h3 class="modal-title" id="expenseModalTitle">Catat Pengeluaran Kas</h3>
+        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('expenseModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="expIdInput">
+        <div class="grid-12" style="gap:12px;">
+          <div class="col-span-6 form-group">
+            <label class="form-label">Tanggal</label>
+            <input type="date" id="expTanggalInput" class="form-control">
+          </div>
+          <div class="col-span-6 form-group">
+            <label class="form-label">Kategori Pengeluaran</label>
+            <select id="expKategoriSelect" class="form-select">
+              <option value="Bahan Baku">Bahan Baku</option>
+              <option value="Upah Produksi">Upah Produksi (Jahit/Potong)</option>
+              <option value="Sablon & Bordir">Vendor Sablon & Bordir</option>
+              <option value="Operasional">Operasional & Listrik</option>
+              <option value="Pengiriman">Ekspedisi & Pengiriman</option>
+              <option value="Lain-lain">Lain-lain</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Keterangan Pengeluaran <span class="req">*</span></label>
+          <input type="text" id="expKeteranganInput" class="form-control" placeholder="Contoh: Belanja kain Combed 30s 2 roll">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Jumlah Pengeluaran <span class="req">*</span></label>
+          <div class="input-rupiah-group">
+            <span class="input-rupiah-prefix">Rp</span>
+            <input type="number" id="expJumlahInput" value="0" min="1" step="1000">
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Bukti Nota / Kwitansi (Opsional, Maks 5 MB)</label>
+          <input type="file" id="expBuktiFileInput" class="form-control" style="padding:6px;" accept="image/jpeg,image/png,application/pdf" onchange="handleFileInputPreview(this, 'expBuktiInfo')">
+          <div id="expBuktiInfo" class="body-sm" style="color:var(--text-muted);"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('expenseModal')">Batal</button>
+        <button type="button" class="btn btn-primary" onclick="submitExpenseForm()">Simpan Pengeluaran</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 10. Modal Kelola Pengguna RBAC (F1) -->
+  <div id="userModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="userModalTitle">
+    <div class="modal-container modal-sm">
+      <div class="modal-header">
+        <h3 class="modal-title" id="userModalTitle">Tambah / Ubah Pengguna</h3>
+        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('userModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Email Akun Google <span class="req">*</span></label>
+          <input type="email" id="userEmailInput" class="form-control" placeholder="nama@gmail.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nama Lengkap Staf / Owner <span class="req">*</span></label>
+          <input type="text" id="userNamaInput" class="form-control" placeholder="Contoh: Rina Admin Konveksi">
+        </div>
+        <div class="grid-12" style="gap:12px;">
+          <div class="col-span-6 form-group" style="margin-bottom:0;">
+            <label class="form-label">Peran (RBAC)</label>
+            <select id="userPeranSelect" class="form-select">
+              <option value="Admin">Admin (Input Order & Pelanggan)</option>
+              <option value="Owner">Owner (Akses Penuh)</option>
+            </select>
+          </div>
+          <div class="col-span-6 form-group" style="margin-bottom:0;">
+            <label class="form-label">Status Aktif</label>
+            <select id="userAktifSelect" class="form-select">
+              <option value="Ya">Ya (Aktif)</option>
+              <option value="Tidak">Tidak (Nonaktif)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('userModal')">Batal</button>
+        <button type="button" class="btn btn-primary" onclick="submitUserForm()">Simpan Pengguna</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 11b. Modal Detail Universal (HPP, Stok Bahan, Mutasi, Kas, Pengguna) -->
+  <div id="recordDetailModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="recordDetailModalTitle">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title" id="recordDetailModalTitle">Detail Data</h3>
+        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('recordDetailModal')">✕</button>
+      </div>
+      <div class="modal-body" id="recordDetailModalBody"></div>
+      <div class="modal-footer" id="recordDetailModalFooter"></div>
+    </div>
+  </div>
+
+  <!-- 11. Modal Konfirmasi Hapus / Tindakan Penting -->
+  <div id="confirmModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+    <div class="modal-container modal-sm">
+      <div class="modal-header">
+        <h3 class="modal-title" id="confirmModalTitle">Konfirmasi Tindakan</h3>
+        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('confirmModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="body-md" id="confirmModalMessage" style="color:var(--text-secondary);">Apakah Anda yakin ingin melanjutkan tindakan ini?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('confirmModal')">Batal</button>
+        <button type="button" class="btn btn-danger" id="confirmModalActionBtn">Ya, Lanjutkan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Include Modular JavaScript (GAS HtmlService) -->
+  <script src="js/app.js"></script>
+
+</body>
+</html>
