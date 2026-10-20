@@ -3,14 +3,15 @@
    * Si-MAKO (Sistem Manajemen Konveksi) — Client-Side Controller (app.js)
    * Arsitektur: GAS-PRO-API (Pure Vanilla JS + Fetch HTTP ke GAS REST API)
    * Platform Frontend: Vercel • Tanpa RPC bawaan GAS • Tanpa iFrame
+   * v3.1.0: login sandi + token, respons ringkas (delta), retry aman, render per menu, paginasi
    * ==========================================================================
    */
 
   // ============================================
   // KONFIGURASI BACKEND GAS REST API
   // ============================================
-  // Ganti URL di bawah ini dengan URL Web App (/exec) dari Google Apps Script Anda:
-  const GAS_URL = 'https://script.google.com/macros/s/XXXX/exec';
+  // v3.1: URL Web App (/exec) diisi di js/config.js — file ini tidak perlu diedit per klien.
+  const GAS_URL = String((window.SIMAKO_CONFIG && window.SIMAKO_CONFIG.GAS_URL) || '').trim();
 
   const APP_STATE = {
     data: null,
@@ -68,14 +69,21 @@
     return /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/i.test(u) && u.indexOf('/XXXX/') === -1;
   }
 
+  function payloadKey_() { return 'simako_data_v31:' + String(APP_STATE.authEmail || 'anon').toLowerCase(); }
   function cacheSavePayload_(payload) {
     try {
       const json = JSON.stringify(payload);
-      if (json.length < 3500000) storeSet_('sessionStorage', STORE_KEYS.payloadCache, json);
+      if (json.length > 4500000) return;
+      if (!storeSet_('localStorage', payloadKey_(), json)) {
+        // Penyimpanan penuh: buang data akun lain di perangkat ini, lalu coba sekali lagi
+        Object.keys(localStorage).filter(function(k) { return k.indexOf('simako_data_v31:') === 0 && k !== payloadKey_(); })
+          .forEach(function(k) { storeRemove_('localStorage', k); });
+        storeSet_('localStorage', payloadKey_(), json);
+      }
     } catch (e) {}
   }
   function cacheLoadPayload_() {
-    const raw = storeGet_('sessionStorage', STORE_KEYS.payloadCache);
+    const raw = storeGet_('localStorage', payloadKey_());
     if (!raw) return null;
     try {
       const p = JSON.parse(raw);
@@ -87,6 +95,7 @@
     } catch (e) { return null; }
   }
   function cacheClearPayload_() {
+    storeRemove_('localStorage', payloadKey_());
     storeRemove_('sessionStorage', STORE_KEYS.payloadCache);
   }
 
@@ -180,62 +189,212 @@
   }
 
   /**
-   * GET data dari GAS REST API menggunakan fetch()
+   * ==========================================================================
+   * 1b. KOMUNIKASI SERVER v3.1 (GAS-PRO-API + Instant UX PRO + Scale Turbo)
+   *  - Sesi token (login email + sandi). Server tidak lagi mempercayai email dari browser.
+   *  - fetch() dengan timeout & percobaan ulang: baca 3×, simpan 2× dengan reqId yang sama
+   *    (server menolak penyimpanan ganda, jadi aman saat sinyal HP putus-sambung).
+   *  - Respons ringkas: browser mengirim `have` (versi data lokal); server hanya mengirim yang berubah.
+   *  - Pengukur: ketik  Perf.table()  atau  Perf.summary()  di Console browser.
+   * ==========================================================================
    */
-  async function fetchData(action = 'getInitialAppData', queryParams = {}) {
-    const endpoint = getActiveGasUrl();
-    if (!isGasUrlConfigured(endpoint)) {
-      throw new Error('URL Endpoint GAS (/exec) belum dikonfigurasi. Silakan isi URL /exec terlebih dahulu.');
+  const READ_ACTIONS = /^(getInitialAppData|getData|runIntegrityCheck|login)$/;
+  const SESSION_KEYS = { token: 'simako_token_v31', exp: 'simako_token_exp_v31', legacy: 'simako_backend_lama' };
+  const CHART_JS_URL = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+
+  const Perf = {
+    rows: [],
+    add: function(action, total, server, partial) {
+      this.rows.push({
+        aksi: action, total_ms: total,
+        server_ms: (server === undefined || server === null) ? null : server,
+        jaringan_ms: (server === undefined || server === null) ? null : total - server,
+        ringkas: Boolean(partial), waktu: new Date().toLocaleTimeString('id-ID')
+      });
+      if (this.rows.length > 200) this.rows.shift();
+    },
+    table: function() { console.table(this.rows.slice(-30)); },
+    summary: function() {
+      const g = {};
+      this.rows.forEach(function(r) {
+        const x = g[r.aksi] || (g[r.aksi] = { aksi: r.aksi, n: 0, total: 0, server: 0, ns: 0 });
+        x.n++; x.total += r.total_ms;
+        if (r.server_ms !== null) { x.server += r.server_ms; x.ns++; }
+      });
+      console.table(Object.keys(g).map(function(k) {
+        const x = g[k];
+        return { aksi: x.aksi, panggilan: x.n, rata_total_ms: Math.round(x.total / x.n), rata_server_ms: x.ns ? Math.round(x.server / x.ns) : null };
+      }));
     }
-    const url = new URL(endpoint);
-    url.searchParams.set('action', action);
-    if (APP_STATE.authEmail) {
-      url.searchParams.set('email', APP_STATE.authEmail);
-    }
-    Object.keys(queryParams || {}).forEach(function(k) {
-      if (queryParams[k] !== undefined && queryParams[k] !== null && queryParams[k] !== '') {
-        url.searchParams.set(k, String(queryParams[k]));
+  };
+  window.Perf = Perf;
+
+  function getToken_() {
+    const t = storeGet_('localStorage', SESSION_KEYS.token);
+    const exp = Number(storeGet_('localStorage', SESSION_KEYS.exp) || 0);
+    if (!t || (exp && exp < Date.now())) return '';
+    return t;
+  }
+  function setToken_(t, exp) {
+    storeSet_('localStorage', SESSION_KEYS.token, t || '');
+    storeSet_('localStorage', SESSION_KEYS.exp, String(exp || 0));
+  }
+  function clearToken_() {
+    storeRemove_('localStorage', SESSION_KEYS.token);
+    storeRemove_('localStorage', SESSION_KEYS.exp);
+  }
+  function isLegacyBackend_() { return storeGet_('localStorage', SESSION_KEYS.legacy) === '1'; }
+  function hasSession_() { return Boolean(getToken_()) || isLegacyBackend_(); }
+
+  function sleep_(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+  function waitOnline_(ms) {
+    return new Promise(function(resolve) {
+      if (navigator.onLine !== false) return resolve();
+      const t = setTimeout(done, ms);
+      function done() { clearTimeout(t); window.removeEventListener('online', done); resolve(); }
+      window.addEventListener('online', done);
+    });
+  }
+
+  /** Bangunkan server GAS lebih awal (mis. saat layar login dibuka) — maks. 1× per 4 menit, tanpa data. */
+  function warmUpServer_() {
+    const url = getActiveGasUrl();
+    if (!isGasUrlConfigured(url)) return;
+    try {
+      const k = 'simako_warm_at', last = Number(storeGet_('sessionStorage', k) || 0);
+      if (Date.now() - last < 240000) return;
+      storeSet_('sessionStorage', k, String(Date.now()));
+      fetch(url + '?w=1&t=' + Date.now(), { mode: 'no-cors', cache: 'no-store' }).catch(function() {});
+    } catch (e) {}
+  }
+
+  async function apiOnce_(action, body, timeoutMs) {
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(function() { ctrl.abort(); }, timeoutMs) : null;
+    const t0 = (window.performance && performance.now) ? performance.now() : Date.now();
+    try {
+      const res = await fetch(getActiveGasUrl(), {
+        method: 'POST', redirect: 'follow', cache: 'no-store', signal: ctrl ? ctrl.signal : undefined,
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // wajib: hindari CORS preflight
+        body: JSON.stringify(body)
+      });
+      const text = await res.text();
+      const t1 = (window.performance && performance.now) ? performance.now() : Date.now();
+      try {
+        const j = JSON.parse(text);
+        Perf.add(action, Math.round(t1 - t0), j.ms, j.data && j.data.partial);
+        return j;
+      } catch (e) {
+        return { success: false, network: true, retryable: true,
+          message: 'Server Google membalas tidak wajar (HTTP ' + res.status + '). Coba lagi sebentar lagi.' };
       }
-    });
-
-    const res = await fetch(url.toString(), {
-      method: 'GET',
-      redirect: 'follow'
-    });
-    const json = await res.json();
-    if (!json.success) {
-      throw new Error(json.message || 'Gagal memuat data dari server GAS.');
+    } catch (err) {
+      return { success: false, network: true, retryable: true,
+        message: (err && err.name === 'AbortError') ? 'Server terlalu lama merespons. Periksa sinyal lalu coba lagi.' : 'Koneksi terputus. Periksa internet Anda lalu coba lagi.' };
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-    return json.data;
   }
 
-  /**
-   * POST data ke GAS REST API menggunakan fetch()
-   * WAJIB menggunakan header Content-Type: text/plain;charset=utf-8 agar tidak terkena blokir CORS preflight.
-   */
-  async function postData(action, payload) {
-    const endpoint = getActiveGasUrl();
-    if (!isGasUrlConfigured(endpoint)) {
-      throw new Error('URL Endpoint GAS (/exec) belum dikonfigurasi. Silakan isi URL /exec terlebih dahulu.');
+  /** Satu-satunya pintu ke server. Mengembalikan envelope {success, message, data, code?}. */
+  async function api(action, data, opt) {
+    opt = opt || {};
+    if (!isGasUrlConfigured()) {
+      return { success: false, message: 'URL Endpoint GAS (/exec) belum dikonfigurasi. Isi GAS_URL di js/config.js.' };
     }
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({
-        action: action,
-        email: APP_STATE.authEmail,
-        data: payload
-      })
-    });
-    return await res.json();
+    const isRead = Boolean(opt.read) || READ_ACTIONS.test(action);
+    const body = { action: action, token: getToken_(), email: APP_STATE.authEmail || '', data: (data === undefined ? {} : data) };
+    if (!isRead) body.reqId = opt.reqId || (data && typeof data === 'object' && data.requestId) || generateRequestId_();
+    if (opt.have) body.have = opt.have;
+    const tries = opt.tries || (isRead ? 3 : (isLegacyBackend_() ? 1 : 2));
+    let res = null;
+    for (let i = 0; i < tries; i++) {
+      if (i > 0) {
+        await sleep_(1200 * i);
+        if (navigator.onLine === false) await waitOnline_(15000);
+      }
+      res = await apiOnce_(action, body, isRead ? (i ? 40000 : 25000) : 90000);
+      if (res.success || !res.retryable) break;
+    }
+    return res;
   }
 
+  /** Gabungkan respons ringkas server ke data lokal (harus identik dengan versi server). */
+  function mergePayload_(base, p) {
+    if (!p || p.authorized === false) return p;
+    if (!p.partial || !base) {
+      const full = Object.assign({}, p);
+      delete full.patch; delete full.partial;
+      return full;
+    }
+    const out = Object.assign({}, base);
+    Object.keys(p).forEach(function(k) { if (k !== 'patch' && k !== 'partial' && k !== 'cv') out[k] = p[k]; });
+    if (p.patch) {
+      Object.keys(p.patch).forEach(function(coll) {
+        const pt = p.patch[coll], arr = (out[coll] || []).slice(), idx = {};
+        arr.forEach(function(r, i) { idx[r[pt.key]] = i; });
+        (pt.upsert || []).forEach(function(r) {
+          if (idx[r[pt.key]] !== undefined) arr[idx[r[pt.key]]] = r;
+          else { idx[r[pt.key]] = arr.length; arr.push(r); }
+        });
+        const rm = {};
+        (pt.remove || []).forEach(function(id) { rm[id] = 1; });
+        out[coll] = arr.filter(function(r) { return !rm[r[pt.key]]; });
+      });
+    }
+    out.cv = Object.assign({}, base.cv || {}, p.cv || {});
+    return out;
+  }
+
+  function payloadChanged_(p) {
+    if (!p || !p.partial) return true;
+    const moved = Object.keys(p).some(function(k) { return !/^(authorized|user|partial|cv)$/.test(k); });
+    const cur = APP_STATE.data && APP_STATE.data.user;
+    return moved || JSON.stringify(p.user) !== JSON.stringify(cur);
+  }
+
+  /** Tangani sesi habis / wajib ganti sandi / akses dicabut. true = sudah ditangani. */
+  function handleSessionError_(res, isRead) {
+    const code = res && res.code;
+    if (code === 'AUTH') {
+      cacheClearPayload_();
+      clearToken_();
+      storeRemove_('localStorage', SESSION_KEYS.legacy);
+      APP_STATE.data = null;
+      hideBootSplash_();
+      showLoginScreen(false);
+      showToast(res.message || 'Sesi berakhir. Silakan masuk kembali.', 'warning');
+      return true;
+    }
+    if (code === 'MUST_CHANGE') {
+      hideBootSplash_();
+      if (!APP_STATE.data) showLoginScreen(false);
+      openPasswordModal(true);
+      return true;
+    }
+    if (code === 'FORBIDDEN' && isRead) {
+      applyServerPayload({ authorized: false, requireLogin: false, email: APP_STATE.authEmail, message: res.message });
+      return true;
+    }
+    return false;
+  }
+
+  // Kompatibilitas: nama fungsi lama tetap ada (dipakai skrip kustom, bila ada)
+  async function fetchData(action, queryParams) {
+    const r = await api(action || 'getInitialAppData', queryParams || {}, { read: true });
+    if (!r.success) throw new Error(r.message || 'Gagal memuat data dari server GAS.');
+    return r.data;
+  }
+  async function postData(action, payload) { return api(action, payload); }
+
   /**
-   * Wrapper panggil server berbasis fetch() async/await (menggunakan komunikasi HTTP fetch murni)
+   * Wrapper lama (dipakai seluruh aplikasi). onSuccess(data, extra, meta):
+   *  - data  = payload LENGKAP hasil gabung delta (handler lama tetap memanggil applyServerPayload(data))
+   *  - extra = data tambahan sekali pakai (mis. sandi sementara) — tidak pernah disimpan
+   *  - meta  = { changed } — false bila server tidak mengirim perubahan apa pun
    */
   async function callServer(fnName, argsArray, onSuccess, onError) {
-    const isReadOnly = (fnName === 'getInitialAppData');
+    const isReadOnly = READ_ACTIONS.test(fnName);
     if (!isReadOnly && APP_STATE.isSubmitting) {
       showToast('Mohon tunggu, transaksi sebelumnya sedang disimpan...', 'warning');
       return;
@@ -264,35 +423,261 @@
     }
 
     if (!isReadOnly && payloadData && typeof payloadData === 'object' && !Array.isArray(payloadData)) {
-      if (!payloadData.requestId) {
-        payloadData.requestId = generateRequestId_();
-      }
+      if (!payloadData.requestId) payloadData.requestId = generateRequestId_();
     }
 
+    const fresh = Boolean(isReadOnly && payloadData && payloadData.fresh);
+    const have = (!fresh && APP_STATE.data && APP_STATE.data.cv) ? APP_STATE.data.cv : null;
+
     setLoading(true, !isReadOnly);
+    let res;
     try {
-      let resultData;
-      if (isReadOnly) {
-        const forceFresh = (args[0] && args[0].fresh) ? '1' : '';
-        resultData = await fetchData('getInitialAppData', forceFresh ? { fresh: '1' } : {});
-      } else {
-        const res = await postData(fnName, payloadData);
-        if (!res || !res.success) {
-          throw new Error((res && res.message) ? res.message : 'Terjadi kesalahan pada server GAS.');
-        }
-        resultData = res.data;
-      }
+      res = await api(fnName, payloadData, { have: have });
+    } finally {
       setLoading(false, !isReadOnly);
-      if (onSuccess) onSuccess(resultData);
-    } catch (err) {
-      setLoading(false, !isReadOnly);
-      const msg = (err && err.message) ? err.message : String(err);
-      if (onError) {
-        onError(msg);
-      } else {
-        showToast(msg, 'error');
-      }
     }
+
+    if (!res || !res.success) {
+      if (handleSessionError_(res || {}, isReadOnly)) return;
+      const msg = (res && res.message) ? res.message : 'Terjadi kesalahan pada server GAS.';
+      if (onError) onError(msg); else showToast(msg, 'error');
+      return;
+    }
+
+    let out = res.data, changed = true;
+    if (out && typeof out.authorized === 'boolean') {
+      changed = payloadChanged_(out);
+      out = mergePayload_(APP_STATE.data, out);
+      APP_STATE.lastSyncAt = Date.now();
+    }
+    if (res.duplicate) showToast('Data ini sudah tersimpan sebelumnya — tidak dibuat ganda.', 'info');
+    if (onSuccess) onSuccess(out, res.extra || null, { changed: changed });
+  }
+
+  /**
+   * ==========================================================================
+   * 1c. RENDER MALAS & PAGINASI
+   *  - Setelah data berubah, hanya menu yang sedang dibuka yang digambar ulang.
+   *  - Menu lain digambar saat browser senggang atau saat dibuka.
+   *  - Tabel panjang tampil 50 baris + tombol "Tampilkan lagi".
+   * ==========================================================================
+   */
+  const ALL_VIEWS_ = ['dashboard', 'order', 'pelanggan', 'hpp', 'stok', 'keuangan', 'laporan', 'pengaturan'];
+
+  function renderViewIfDirty_(v) {
+    if (!APP_STATE.dirtyViews || !APP_STATE.dirtyViews[v]) return;
+    delete APP_STATE.dirtyViews[v];
+    if (v === 'dashboard') { renderDashboardView(); return; }
+    if (v === 'order') { renderOrdersTable(); return; }
+    if (v === 'pelanggan') { renderCustomersTable(); return; }
+    if (!isOwnerRole()) return;
+    if (v === 'hpp') renderHppView();
+    else if (v === 'stok') renderMaterialsView();
+    else if (v === 'keuangan') renderFinanceView();
+    else if (v === 'pengaturan') renderSettingsAndUsersView();
+    else if (v === 'laporan') {
+      renderReportTable();
+      if (APP_STATE.activeView === 'laporan') setTimeout(renderAnalyticsCharts, 60);
+    }
+  }
+
+  function scheduleIdleRender_() {
+    if (APP_STATE.idleRenderPending) return;
+    APP_STATE.idleRenderPending = true;
+    const ric = window.requestIdleCallback || function(fn) { return setTimeout(fn, 150); };
+    ric(function() {
+      APP_STATE.idleRenderPending = false;
+      const next = Object.keys(APP_STATE.dirtyViews || {})[0];
+      if (!next) return;
+      renderViewIfDirty_(next);
+      scheduleIdleRender_();
+    });
+  }
+
+  const PAGE_SIZE_ = 50;
+  const PAGER_ = {};
+  const PAGER_RENDER_ = {
+    orders: function() { renderOrdersTable(); },
+    customers: function() { renderCustomersTable(); },
+    mutations: function() { renderMaterialsView(); },
+    income: function() { renderFinanceView(); },
+    expenses: function() { renderFinanceView(); },
+    report: function() { renderReportTable(); }
+  };
+
+  /** Ambil potongan baris untuk ditampilkan; tombol "Tampilkan lagi" disisipkan otomatis. */
+  function pageRows_(key, list, tbody, colspan, newestFirst) {
+    const st = PAGER_[key] || (PAGER_[key] = { limit: PAGE_SIZE_, n: -1, seq: 0 });
+    if (st.n !== list.length) { st.limit = PAGE_SIZE_; st.n = list.length; }
+    const src = newestFirst ? list.slice().reverse() : list;
+    const shown = src.slice(0, st.limit);
+    const seq = ++st.seq;
+    if (tbody) {
+      Promise.resolve().then(function() {
+        if (st.seq !== seq) return;
+        const old = tbody.querySelector('tr.pager-row');
+        if (old) old.parentNode.removeChild(old);
+        if (src.length <= shown.length) return;
+        const more = Math.min(PAGE_SIZE_, src.length - shown.length);
+        tbody.insertAdjacentHTML('beforeend',
+          '<tr class="pager-row"><td colspan="' + colspan + '">' +
+            '<button type="button" class="btn btn-secondary btn-sm" onclick="showMoreRows_(\'' + key + '\')">Tampilkan ' + more + ' lagi</button>' +
+            '<span class="pager-info">' + shown.length.toLocaleString('id-ID') + ' dari ' + src.length.toLocaleString('id-ID') + ' baris</span>' +
+          '</td></tr>');
+      });
+    }
+    return shown;
+  }
+
+  function showMoreRows_(key) {
+    const st = PAGER_[key];
+    if (!st) return;
+    st.limit += PAGE_SIZE_;
+    if (PAGER_RENDER_[key]) PAGER_RENDER_[key]();
+  }
+
+  /** Chart.js (±200 KB) dimuat hanya saat menu Laporan dibuka. */
+  let chartJsPromise_ = null;
+  function ensureChartJs_() {
+    if (typeof Chart !== 'undefined') return Promise.resolve();
+    if (chartJsPromise_) return chartJsPromise_;
+    chartJsPromise_ = new Promise(function(resolve, reject) {
+      const s = document.createElement('script');
+      s.src = CHART_JS_URL;
+      s.async = true;
+      s.onload = function() { resolve(); };
+      s.onerror = function() { chartJsPromise_ = null; reject(new Error('Gagal memuat Chart.js')); };
+      document.head.appendChild(s);
+    });
+    return chartJsPromise_;
+  }
+
+  /**
+   * ==========================================================================
+   * 1d. SANDI: ganti sandi (wajib untuk sandi sementara) & sandi sementara pengguna
+   * ==========================================================================
+   */
+  function openPasswordModal(forced) {
+    APP_STATE.pwForced = Boolean(forced);
+    const el = document.getElementById('passwordModal');
+    if (!el) return;
+    el.dataset.locked = forced ? '1' : '';
+    document.getElementById('passwordModalTitle').textContent = forced ? 'Buat Sandi Baru' : 'Ganti Sandi';
+    document.getElementById('passwordForcedNote').hidden = !forced;
+    document.getElementById('passwordModalCloseBtn').hidden = Boolean(forced);
+    document.getElementById('passwordModalCancelBtn').textContent = forced ? 'Keluar' : 'Batal';
+    document.getElementById('pwOldGroup').hidden = Boolean(forced && APP_STATE.tempPassword);
+    ['pwOldInput', 'pwNewInput', 'pwNew2Input'].forEach(function(id) { document.getElementById(id).value = ''; });
+    openModal('passwordModal');
+  }
+
+  function cancelPasswordModal() {
+    if (APP_STATE.pwForced) {
+      const el = document.getElementById('passwordModal');
+      el.dataset.locked = '';
+      closeModal('passwordModal');
+      APP_STATE.tempPassword = null;
+      logoutUser();
+      return;
+    }
+    closeModal('passwordModal');
+  }
+
+  async function submitPasswordChange() {
+    const forced = APP_STATE.pwForced;
+    const oldPw = (forced && APP_STATE.tempPassword) ? APP_STATE.tempPassword : document.getElementById('pwOldInput').value;
+    const n1 = document.getElementById('pwNewInput').value;
+    const n2 = document.getElementById('pwNew2Input').value;
+    if (!oldPw) { showToast(forced ? 'Isi sandi sementara Anda.' : 'Isi sandi lama Anda.', 'error'); return; }
+    if (n1.length < 8) { showToast('Sandi baru minimal 8 karakter.', 'error'); return; }
+    if (n1 !== n2) { showToast('Ulangi sandi baru — kedua isian belum sama.', 'error'); return; }
+
+    const btn = document.getElementById('passwordSubmitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Menyimpan...';
+    const base = APP_STATE.data || cacheLoadPayload_();
+    const res = await api('changePassword', { oldPassword: oldPw, newPassword: n1 }, { read: true, tries: 1, have: base && base.cv });
+    btn.disabled = false;
+    btn.textContent = 'Simpan Sandi Baru';
+
+    if (!res.success) {
+      if (res.code === 'AUTH') { document.getElementById('passwordModal').dataset.locked = ''; closeModal('passwordModal'); handleSessionError_(res, true); return; }
+      showToast(res.message || 'Gagal mengganti sandi.', 'error');
+      return;
+    }
+    setToken_(res.data.token, res.data.exp);
+    APP_STATE.tempPassword = null;
+    APP_STATE.pwForced = false;
+    document.getElementById('passwordModal').dataset.locked = '';
+    closeModal('passwordModal');
+    applyServerPayload(mergePayload_(base, res.data.boot));
+    showToast('Sandi berhasil diganti. Perangkat lain yang memakai akun ini otomatis keluar.', 'success');
+  }
+
+  function createTempPasswordForUser(email) {
+    openConfirmModal('Buat Sandi Sementara',
+      'Buat sandi sementara baru untuk ' + email + '? Sandi lamanya (jika ada) langsung tidak berlaku dan akun ini keluar dari semua perangkat.',
+      function() {
+        callServer('setUserPassword', [{ email: email }], function(payload, extra) {
+          applyServerPayload(payload);
+          if (extra && extra.tempPassword) showTempPasswordModal(extra.email || email, extra.tempPassword);
+        });
+      });
+  }
+
+  function showTempPasswordModal(email, pw) {
+    document.getElementById('tempPwEmail').textContent = email;
+    document.getElementById('tempPwValue').textContent = pw;
+    const text = 'Akun Si-MAKO Anda sudah siap.\nAlamat: ' + location.origin + location.pathname +
+      '\nEmail: ' + email + '\nSandi sementara: ' + pw + '\n(Wajib diganti saat masuk pertama kali)';
+    document.getElementById('tempPwWaLink').href = 'https://wa.me/?text=' + encodeURIComponent(text);
+    openModal('tempPasswordModal');
+  }
+
+  function copyTempPassword() {
+    const v = document.getElementById('tempPwValue').textContent;
+    const done = function() { showToast('Sandi sementara disalin.', 'success'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(v).then(done, function() {});
+  }
+
+  function togglePasswordVisibility(inputId, btn) {
+    const el = document.getElementById(inputId);
+    if (!el) return;
+    const show = el.type === 'password';
+    el.type = show ? 'text' : 'password';
+    if (btn) { btn.textContent = show ? 'Sembunyikan' : 'Lihat'; btn.setAttribute('aria-pressed', show ? 'true' : 'false'); }
+  }
+
+  function showBootError_(msg) {
+    const el = document.getElementById('bootSplash');
+    if (!el) { showToast(msg, 'error'); return; }
+    el.hidden = false;
+    el.innerHTML = '<div class="boot-error">' +
+      '<div style="font-size:15px; color:var(--text-primary);">Data belum bisa dimuat</div>' +
+      '<div class="body-sm" style="max-width:320px; text-align:center;">' + escapeHtml(msg) + '</div>' +
+      '<div class="flex-row" style="gap:8px; justify-content:center;">' +
+        '<button type="button" class="btn btn-primary btn-sm" onclick="retryBoot_()">Coba lagi</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" onclick="logoutUser()">Keluar</button>' +
+      '</div></div>';
+  }
+  function retryBoot_() {
+    const el = document.getElementById('bootSplash');
+    if (el) el.innerHTML = '<div class="boot-spinner" aria-hidden="true"></div><div>Memuat Si-MAKO&hellip;</div>';
+    refreshAppData(false);
+  }
+
+  /** Dipanggil sekali saat halaman dibuka. */
+  function initV31_() {
+    storeRemove_('sessionStorage', 'simako_payload_cache_v3');   // cache versi lama
+    const setupMode = /[?&]setup=1\b/.test(location.search) || !isGasUrlConfigured();
+    if (setupMode) document.querySelectorAll('[data-setup-only]').forEach(function(el) { el.hidden = false; });
+    warmUpServer_();
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState !== 'visible') return;
+      if (!APP_STATE.data || !hasSession_() || APP_STATE.isSubmitting) return;
+      if (document.querySelector('.modal-backdrop.open')) return;
+      if (Date.now() - (APP_STATE.lastSyncAt || 0) > 120000) refreshAppData(false);
+    });
   }
 
     function formatRupiah(num) {
@@ -366,7 +751,9 @@
   function closeModal(id) {
     const el = document.getElementById(id);
     if (!el) return;
+    if (el.dataset && el.dataset.locked === '1') return;
     el.classList.remove('open');
+    if (id === 'tempPasswordModal') { const v = document.getElementById('tempPwValue'); if (v) v.textContent = ''; }
     if (_lastFocusedElement && typeof _lastFocusedElement.focus === 'function') {
       try { _lastFocusedElement.focus(); } catch (e) {}
     }
@@ -421,6 +808,7 @@
 
   window.addEventListener('DOMContentLoaded', function() {
     applyTheme(getTheme(), false);
+    initV31_();
     const savedLayout = storeGet_('localStorage', STORE_KEYS.invoiceLayout);
     if (savedLayout === 'A4' || savedLayout === 'NOTA') APP_STATE.invoiceLayout = savedLayout;
 
@@ -439,7 +827,7 @@
     }
 
     // Jika URL GAS belum diisi atau pengguna belum masuk dengan email, tampilkan Layar Masuk Email
-    if (!isGasUrlConfigured() || !APP_STATE.authEmail) {
+    if (!isGasUrlConfigured() || !APP_STATE.authEmail || !hasSession_()) {
       hideBootSplash_();
       showLoginScreen(!isGasUrlConfigured());
       return;
@@ -485,10 +873,12 @@
   async function handleLoginSubmit(evt) {
     if (evt && typeof evt.preventDefault === 'function') evt.preventDefault();
     const emailInput = document.getElementById('loginEmailInput');
+    const pwInput = document.getElementById('loginPasswordInput');
     const urlInput = document.getElementById('loginGasUrlInput');
     const submitBtn = document.getElementById('loginSubmitBtn');
 
     const email = String(emailInput ? emailInput.value : '').toLowerCase().trim();
+    const password = pwInput ? pwInput.value : '';
     if (!email || email.indexOf('@') === -1) {
       showToast('Masukkan alamat email yang valid.', 'error');
       return;
@@ -506,53 +896,87 @@
     if (!isGasUrlConfigured()) {
       const apiBox = document.getElementById('loginApiConfigBox');
       if (apiBox) apiBox.style.display = 'block';
-      showToast('Masukkan URL Web App GAS (/exec) Anda terlebih dahulu atau isi variabel GAS_URL di js/app.js.', 'warning');
+      showToast('Masukkan URL Web App GAS (/exec) Anda terlebih dahulu atau isi GAS_URL di js/config.js.', 'warning');
       return;
+    }
+    if (!password) {
+      showToast('Masukkan sandi Anda.', 'error');
+      if (pwInput) pwInput.focus();
+      return;
+    }
+
+    function setBtn(busy) {
+      if (!submitBtn) return;
+      submitBtn.disabled = busy;
+      submitBtn.innerHTML = busy ? '<span>Memverifikasi Akses...</span>' : '<span>Masuk ke Dashboard</span>';
     }
 
     APP_STATE.authEmail = email;
     storeSet_('localStorage', STORE_KEYS.authEmail, email);
+    setBtn(true);
+    const cached = cacheLoadPayload_();
+    const res = await api('login', { email: email, password: password }, { have: cached && cached.cv });
 
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.innerHTML = '<span>Memverifikasi Akses...</span>';
+    if (!res.success && /tidak dikenal/i.test(res.message || '')) {
+      // Backend masih v3.0 (Kode.gs belum diperbarui): masuk dengan cara lama untuk sementara.
+      storeSet_('localStorage', SESSION_KEYS.legacy, '1');
+      await callServer('getInitialAppData', [{ fresh: true }], function(payload) {
+        setBtn(false);
+        applyServerPayload(payload);
+        showToast('Backend masih versi lama: login belum memakai sandi. Segera perbarui Kode.gs ke v3.1.', 'warning');
+      }, function(msg) {
+        setBtn(false);
+        showToast(msg, 'error');
+      });
+      return;
+    }
+    setBtn(false);
+    if (!res.success) {
+      showToast(res.message || 'Gagal masuk. Coba lagi.', 'error');
+      if (pwInput && res.code === 'BAD_LOGIN') { pwInput.value = ''; pwInput.focus(); }
+      return;
     }
 
-    await callServer('getInitialAppData', [{ fresh: true }], function(payload) {
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = '<span>Masuk ke Dashboard</span>';
-      }
-      applyServerPayload(payload);
-    }, function(msg) {
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = '<span>Masuk ke Dashboard</span>';
-      }
-      showToast(msg, 'error');
-    });
+    storeRemove_('localStorage', SESSION_KEYS.legacy);
+    setToken_(res.data.token, res.data.exp);
+    if (pwInput) pwInput.value = '';
+    if (res.data.mustChange) {
+      APP_STATE.tempPassword = password;     // hanya di memori, untuk langkah ganti sandi
+      hideBootSplash_();
+      openPasswordModal(true);
+      return;
+    }
+    APP_STATE.lastSyncAt = Date.now();
+    applyServerPayload(mergePayload_(cached, res.data.boot));
   }
 
   function logoutUser(openApiBox) {
     cacheClearPayload_();
     APP_STATE.data = null;
+    clearToken_();
+    storeRemove_('localStorage', SESSION_KEYS.legacy);
+    const pwIn = document.getElementById('loginPasswordInput');
+    if (pwIn) pwIn.value = '';
     if (!openApiBox) {
       APP_STATE.authEmail = '';
       storeRemove_('localStorage', STORE_KEYS.authEmail);
     }
     showLoginScreen(Boolean(openApiBox));
-    showToast(openApiBox ? 'Silakan perbarui URL Endpoint GAS Anda.' : 'Anda telah keluar dari sesi Si-MAKO.', 'info');
+    showToast(openApiBox ? 'Silakan perbarui URL Endpoint GAS Anda.' : 'Anda telah keluar. Data di perangkat ini sudah dibersihkan.', 'info');
   }
 
   function refreshAppData(forceFresh) {
-    if (!isGasUrlConfigured() || !APP_STATE.authEmail) {
+    if (!isGasUrlConfigured() || !APP_STATE.authEmail || !hasSession_()) {
       hideBootSplash_();
       showLoginScreen(!isGasUrlConfigured());
       return;
     }
-    callServer('getInitialAppData', [{ fresh: Boolean(forceFresh) }], function(payload) {
-      applyServerPayload(payload);
+    callServer('getInitialAppData', [{ fresh: Boolean(forceFresh) }], function(payload, extra, meta) {
+      if (forceFresh || !APP_STATE.data || !meta || meta.changed) applyServerPayload(payload);
+      else hideBootSplash_();
+      if (forceFresh) showToast('Data terbaru dari Google Sheets sudah dimuat.', 'info');
     }, function(msg) {
+      if (!APP_STATE.data) { showBootError_(msg); return; }
       hideBootSplash_();
       showToast(msg, 'error');
     });
@@ -710,6 +1134,7 @@
     });
     const targetSec = document.getElementById('view-' + viewName);
     if (targetSec) targetSec.style.display = 'block';
+    renderViewIfDirty_(viewName);
 
     document.querySelectorAll('.sidebar-nav .nav-item').forEach(function(btn) {
       btn.classList.remove('active');
@@ -737,19 +1162,11 @@
   }
 
   function renderAllViews() {
-    renderDashboardView();
-    renderOrdersTable();
-    renderCustomersTable();
-    if (isOwnerRole()) {
-      renderHppView();
-      renderMaterialsView();
-      renderFinanceView();
-      renderReportTable();
-      renderSettingsAndUsersView();
-      if (APP_STATE.activeView === 'laporan') {
-        setTimeout(renderAnalyticsCharts, 60);
-      }
-    }
+    // v3.1: tandai semua menu "kotor", gambar menu yang sedang dibuka sekarang, sisanya saat browser senggang
+    APP_STATE.dirtyViews = {};
+    ALL_VIEWS_.forEach(function(v) { APP_STATE.dirtyViews[v] = true; });
+    renderViewIfDirty_(APP_STATE.activeView);
+    scheduleIdleRender_();
   }
 
   /**
@@ -989,7 +1406,7 @@
       return;
     }
 
-    tbody.innerHTML = filtered.map(function(o) {
+    tbody.innerHTML = pageRows_('orders', filtered, tbody, 6, true).map(function(o) {
       const urg = getDeadlineUrgencyInfo(o.deadline, o.status_order);
       return '<tr>' +
         '<td>' +
@@ -1525,7 +1942,7 @@
       return;
     }
 
-    tbody.innerHTML = filtered.map(function(c) {
+    tbody.innerHTML = pageRows_('customers', filtered, tbody, 5, true).map(function(c) {
       const custOrders = orders.filter(function(o) { return o.id_pelanggan === c.id_pelanggan && o.status_order !== 'Batal'; });
       const totalSpend = custOrders.reduce(function(acc, o) { return acc + (Number(o.total_harga) || 0); }, 0);
 
@@ -1961,7 +2378,7 @@
     if (mutations.length === 0) {
       mutBody.innerHTML = '<tr><td colspan="5" class="empty-state">Belum ada riwayat mutasi stok.</td></tr>';
     } else {
-      mutBody.innerHTML = mutations.map(function(mut) {
+      mutBody.innerHTML = pageRows_('mutations', mutations, mutBody, 5).map(function(mut) {
         const mat = matMap[mut.id_bahan] || {};
         const j = mut.jenis;
         const numQty = Number(mut.jumlah) || 0;
@@ -2216,7 +2633,7 @@
     if (filteredPays.length === 0) {
       incBody.innerHTML = '<tr><td colspan="5" class="empty-state">Belum ada pemasukan pada periode ini.</td></tr>';
     } else {
-      incBody.innerHTML = filteredPays.slice().reverse().map(function(p) {
+      incBody.innerHTML = pageRows_('income', filteredPays.slice().reverse(), incBody, 5).map(function(p) {
         const ord = orderMap[p.id_order] || {};
         return '<tr>' +
           '<td class="tnum col-desktop-only">' + escapeHtml(p.tanggal) + '</td>' +
@@ -2236,7 +2653,7 @@
     if (filteredExps.length === 0) {
       expBody.innerHTML = '<tr><td colspan="5" class="empty-state">Belum ada pengeluaran pada periode ini.</td></tr>';
     } else {
-      expBody.innerHTML = filteredExps.slice().reverse().map(function(e) {
+      expBody.innerHTML = pageRows_('expenses', filteredExps.slice().reverse(), expBody, 5).map(function(e) {
         return '<tr>' +
           '<td class="tnum col-desktop-only">' + escapeHtml(e.tanggal) + '</td>' +
           '<td>' +
@@ -2466,7 +2883,12 @@
 
   function renderAnalyticsCharts() {
     const d = APP_STATE.data;
-    if (!d || !isOwnerRole() || typeof Chart === 'undefined') return;
+    if (!d || !isOwnerRole()) return;
+    if (typeof Chart === 'undefined') {
+      ensureChartJs_().then(function() { if (APP_STATE.activeView === 'laporan') renderAnalyticsCharts(); })
+        .catch(function() { showToast('Grafik gagal dimuat (periksa koneksi internet).', 'warning'); });
+      return;
+    }
 
     const orders = d.orders || [];
     const payments = d.payments || [];
@@ -2763,7 +3185,7 @@
       return;
     }
 
-    tbody.innerHTML = data.rows.map(function(r) {
+    tbody.innerHTML = pageRows_('report', data.rows, tbody, data.headers.length + 1).map(function(r) {
       const detailFn = r.type === 'orders'
         ? ('openOrderDetailModal(\'' + r.id + '\')')
         : (r.type === 'payments' ? ('openPaymentDetailModal(\'' + r.id + '\')') : ('openExpenseDetailModal(\'' + r.id + '\')'));
@@ -2826,12 +3248,13 @@
     usersBody.innerHTML = users.map(function(u) {
       const roleBadge = u.peran === 'Owner' ? '<span class="badge badge-owner">Owner</span>' : '<span class="badge badge-info">Admin</span>';
       const activeBadge = String(u.aktif).toLowerCase() === 'ya' ? '<span class="badge badge-success">Aktif</span>' : '<span class="badge badge-danger">Nonaktif</span>';
+      const pwBadge = u.punya_sandi === false ? ' <span class="badge badge-warning">Belum ada sandi</span>' : (u.sandi_sementara ? ' <span class="badge badge-neutral">Sandi sementara</span>' : '');
       return '<tr>' +
         '<td>' +
           '<div class="cell-truncate" style="font-weight:600;">' + escapeHtml(u.nama) + '</div>' +
           '<div class="body-sm cell-truncate" style="color:var(--text-muted);">' + escapeHtml(u.email) + '</div>' +
         '</td>' +
-        '<td>' + roleBadge + '</td>' +
+        '<td>' + roleBadge + pwBadge + '</td>' +
         '<td class="col-desktop-only">' + activeBadge + '</td>' +
         '<td class="num-col">' +
           '<button type="button" class="btn btn-secondary btn-xs" data-email="' + escapeHtml(u.email) + '" onclick="openUserDetailModal(this.dataset.email)">Detail</button>' +
@@ -2903,6 +3326,8 @@
       closeModal('userModal');
       applyServerPayload(res);
       showToast('Data pengguna ' + email + ' berhasil disimpan.', 'success');
+      const nu = (res.users || []).find(function(x) { return String(x.email).toLowerCase() === email.toLowerCase(); });
+      if (nu && nu.punya_sandi === false && aktif === 'Ya') setTimeout(function() { createTempPasswordForUser(nu.email); }, 250);
     });
   }
 
@@ -3146,10 +3571,14 @@
         '<div class="detail-kv-row"><span class="detail-kv-label">Email Akun Google</span><span class="detail-kv-val">' + escapeHtml(u.email) + '</span></div>' +
         '<div class="detail-kv-row"><span class="detail-kv-label">Peran (RBAC)</span><span class="detail-kv-val">' + roleBadge + '</span></div>' +
         '<div class="detail-kv-row"><span class="detail-kv-label">Status Akses</span><span class="detail-kv-val">' + activeBadge + '</span></div>' +
+        '<div class="detail-kv-row"><span class="detail-kv-label">Sandi Login</span><span class="detail-kv-val">' + (u.punya_sandi === false ? '<span class="badge badge-warning">Belum dibuat</span>' : (u.sandi_sementara ? '<span class="badge badge-neutral">Sementara (belum diganti)</span>' : '<span class="badge badge-success">Sudah diatur</span>')) + '</span></div>' +
       '</div>';
 
     document.getElementById('recordDetailModalFooter').innerHTML = '' +
       '<button type="button" class="btn btn-secondary" onclick="closeModal(\'recordDetailModal\')">Tutup</button>' +
+      (String(u.email).toLowerCase() !== String((d.user || {}).email || '').toLowerCase()
+        ? '<button type="button" class="btn btn-secondary" data-email="' + escapeHtml(u.email) + '" onclick="closeModal(\'recordDetailModal\'); createTempPasswordForUser(this.dataset.email)">Buat Sandi Sementara</button>'
+        : '') +
       '<button type="button" class="btn btn-danger-soft" data-email="' + escapeHtml(u.email) + '" onclick="closeModal(\'recordDetailModal\'); confirmDeleteUser(this.dataset.email)">Hapus Pengguna</button>' +
       '<button type="button" class="btn btn-primary" data-email="' + escapeHtml(u.email) + '" onclick="closeModal(\'recordDetailModal\'); openUserModal(this.dataset.email)">Ubah Hak Akses</button>';
 

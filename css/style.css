@@ -1930,3 +1930,34 @@
     padding-top: 10px;
     border-top: 1px dashed var(--border-color);
   }
+
+  /* ==========================================================================
+   * v3.1 — Login sandi, modal sandi sementara, paginasi tabel, layar coba lagi
+   * ========================================================================== */
+  [data-setup-only][hidden] { display: none !important; }
+  .pw-field { position: relative; }
+  .pw-field .form-control { padding-right: 104px; }
+  .pw-toggle {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    height: 30px; padding: 0 10px; border: 0; border-radius: 8px;
+    background: transparent; color: var(--text-muted);
+    font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .pw-toggle:hover, .pw-toggle:focus-visible { color: var(--text-primary); background: var(--bg-subtle); }
+  .pw-note {
+    background: var(--warning-soft); color: var(--warning-text); border: 1px solid var(--warning-border);
+    border-radius: 10px; padding: 10px 12px; font-size: 12px; margin-bottom: 14px;
+  }
+  .pw-note[hidden], #pwOldGroup[hidden] { display: none; }
+  .modal-close[hidden] { display: none; }
+  .temp-pw-box {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    padding: 14px 16px; margin: 14px 0; border: 1px dashed var(--border-color); border-radius: 12px; background: var(--bg-subtle);
+  }
+  .temp-pw-box code {
+    font-size: 22px; letter-spacing: 2px; font-weight: 700; color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all;
+  }
+  .data-table tr.pager-row td { text-align: center; padding: 12px 8px; }
+  .data-table tr.pager-row .pager-info { display: inline-block; margin-left: 10px; font-size: 12px; color: var(--text-muted); }
+  .boot-error { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px; }

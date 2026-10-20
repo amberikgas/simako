@@ -5,8 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light dark">
   <title>Si-MAKO — Sistem Manajemen Konveksi</title>
-  <!-- Chart.js CDN untuk Visualisasi Laporan (F10) -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <!-- v3.1: Chart.js dimuat otomatis saat menu Laporan dibuka (tampilan awal lebih ringan) -->
   <!-- Include Modular Stylesheet (GAS HtmlService) -->
   <!-- Terapkan tema SEBELUM render pertama agar tidak berkedip (tersimpan > preferensi sistem) -->
   <script>
@@ -21,8 +20,10 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://script.google.com" crossorigin>
+  <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=3.1.0">
 </head>
 <body>
   <!-- Splash pemuatan awal (dihapus otomatis saat data pertama tiba) -->
@@ -44,14 +45,22 @@
         <div class="brand-logo-mark">SM</div>
         <h1 class="headline-md" style="margin-bottom:6px;">Masuk ke Si-MAKO</h1>
         <p class="body-sm" style="color:var(--text-muted); max-width:340px;">
-          Sistem Manajemen Konveksi (Edisi REST API). Masukkan email yang terdaftar pada sheet <code>Pengguna</code>.
+          Masuk dengan email dan sandi akun Si-MAKO Anda.
         </p>
       </div>
 
       <form id="emailLoginForm" onsubmit="handleLoginSubmit(event)">
         <div class="form-group">
           <label class="form-label" for="loginEmailInput">Email Akun Terdaftar (Owner / Admin) <span class="req">*</span></label>
-          <input type="email" id="loginEmailInput" class="form-control" placeholder="nama@gmail.com" required autocomplete="email">
+          <input type="email" id="loginEmailInput" class="form-control" placeholder="nama@gmail.com" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="loginPasswordInput">Sandi <span class="req">*</span></label>
+          <div class="pw-field">
+            <input type="password" id="loginPasswordInput" class="form-control" placeholder="Sandi akun Anda" autocomplete="current-password">
+            <button type="button" class="pw-toggle" aria-pressed="false" onclick="togglePasswordVisibility('loginPasswordInput', this)">Lihat</button>
+          </div>
+          <div class="body-sm" style="color:var(--text-muted); margin-top:6px; font-size:11px;">Lupa sandi? Minta Owner membuat sandi sementara untuk Anda.</div>
         </div>
 
         <div id="loginApiConfigBox" class="api-config-box" style="display:none;">
@@ -70,7 +79,7 @@
         </button>
 
         <div class="flex-between" style="margin-top:14px;">
-          <button type="button" class="btn btn-ghost btn-xs" onclick="toggleLoginApiConfig()">
+          <button type="button" class="btn btn-ghost btn-xs" data-setup-only hidden onclick="toggleLoginApiConfig()">
             Atur URL API Backend
           </button>
           <button type="button" class="btn btn-ghost btn-xs" onclick="toggleTheme()">
@@ -98,7 +107,7 @@
         Hubungi <strong>Owner Konveksi</strong> untuk mendaftarkan email Anda pada sheet <code>Pengguna</code> dengan status <code>Aktif = Ya</code>.
       </p>
       <div class="flex-row" style="justify-content:center; gap:10px;">
-        <button type="button" class="btn btn-secondary" onclick="logoutUser()">Ganti Email</button>
+        <button type="button" class="btn btn-secondary" onclick="logoutUser()">Keluar</button>
         <button type="button" class="btn btn-primary" onclick="refreshAppData(true)">Coba Muat Ulang</button>
       </div>
     </div>
@@ -210,8 +219,9 @@
           <button type="button" class="btn btn-xs" style="height:22px; padding:0 8px; background:#FFF; color:var(--text-primary); border:1px solid var(--border-color);" onclick="handleRoleSimulationChange('Owner')">Kembali Owner</button>
         </div>
         <div class="sidebar-account-actions">
-          <button type="button" class="btn btn-ghost btn-xs" style="padding:0 8px;" onclick="openApiConfigModal()" title="Ubah URL Endpoint GAS API">Endpoint API</button>
-          <button type="button" class="btn btn-danger-soft btn-xs" style="padding:0 10px;" onclick="logoutUser()" title="Keluar atau ganti akun email">Keluar / Ganti Email</button>
+          <button type="button" class="btn btn-ghost btn-xs" style="padding:0 8px;" data-setup-only hidden onclick="openApiConfigModal()" title="Ubah URL Endpoint GAS API">Endpoint API</button>
+          <button type="button" class="btn btn-ghost btn-xs" style="padding:0 8px;" onclick="openPasswordModal(false)" title="Ganti sandi akun Anda">Ganti Sandi</button>
+          <button type="button" class="btn btn-danger-soft btn-xs" style="padding:0 10px;" onclick="logoutUser()" title="Keluar dan bersihkan data di perangkat ini">Keluar</button>
         </div>
       </div>
     </aside>
@@ -1465,8 +1475,70 @@
     </div>
   </div>
 
-  <!-- Include Modular JavaScript (GAS HtmlService) -->
-  <script src="js/app.js"></script>
+  <!-- v3.1: Modal Ganti Sandi (wajib saat masuk dengan sandi sementara) -->
+  <div id="passwordModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="passwordModalTitle">
+    <div class="modal-container modal-sm">
+      <div class="modal-header">
+        <h3 class="modal-title" id="passwordModalTitle">Ganti Sandi</h3>
+        <button type="button" class="modal-close" id="passwordModalCloseBtn" aria-label="Tutup Modal" onclick="closeModal('passwordModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="passwordForcedNote" class="pw-note" hidden>
+          Anda masuk dengan <strong>sandi sementara</strong>. Buat sandi baru milik Anda sendiri untuk melanjutkan.
+        </div>
+        <div class="form-group" id="pwOldGroup">
+          <label class="form-label" for="pwOldInput">Sandi Lama</label>
+          <div class="pw-field">
+            <input type="password" id="pwOldInput" class="form-control" autocomplete="current-password">
+            <button type="button" class="pw-toggle" aria-pressed="false" onclick="togglePasswordVisibility('pwOldInput', this)">Lihat</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="pwNewInput">Sandi Baru <span class="req">*</span></label>
+          <div class="pw-field">
+            <input type="password" id="pwNewInput" class="form-control" autocomplete="new-password" placeholder="Minimal 8 karakter">
+            <button type="button" class="pw-toggle" aria-pressed="false" onclick="togglePasswordVisibility('pwNewInput', this)">Lihat</button>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" for="pwNew2Input">Ulangi Sandi Baru <span class="req">*</span></label>
+          <input type="password" id="pwNew2Input" class="form-control" autocomplete="new-password">
+        </div>
+        <p class="body-sm" style="color:var(--text-muted); margin-top:12px;">
+          Tips: gabungkan dua–tiga kata yang mudah Anda ingat dengan angka, dan jangan memakai nama atau nomor HP. Setelah diganti, perangkat lain yang memakai akun ini otomatis keluar.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="passwordModalCancelBtn" onclick="cancelPasswordModal()">Batal</button>
+        <button type="button" class="btn btn-primary" id="passwordSubmitBtn" onclick="submitPasswordChange()">Simpan Sandi Baru</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- v3.1: Modal Sandi Sementara (hanya tampil sekali untuk Owner) -->
+  <div id="tempPasswordModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="tempPasswordModalTitle">
+    <div class="modal-container modal-sm">
+      <div class="modal-header">
+        <h3 class="modal-title" id="tempPasswordModalTitle">Sandi Sementara Dibuat</h3>
+        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('tempPasswordModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="body-md">Berikan sandi ini kepada <strong id="tempPwEmail">-</strong>. Sandi hanya ditampilkan <strong>sekali</strong> dan wajib diganti saat pengguna masuk pertama kali.</p>
+        <div class="temp-pw-box">
+          <code id="tempPwValue"></code>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="copyTempPassword()">Salin</button>
+        </div>
+        <a id="tempPwWaLink" class="btn btn-secondary btn-sm" href="#" target="_blank" rel="noopener">Kirim lewat WhatsApp</a>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" onclick="closeModal('tempPasswordModal')">Selesai</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- v3.1: konfigurasi per instalasi (URL backend) lalu aplikasi -->
+  <script src="js/config.js?v=3.1.0" defer></script>
+  <script src="js/app.js?v=3.1.0" defer></script>
 
 </body>
 </html>

@@ -1,81 +1,96 @@
-# PANDUAN INSTALASI — Si-MAKO (Edisi GAS-PRO-API + Vercel)
+# PANDUAN INSTALASI — Si-MAKO v3.1 (GAS-PRO-API + Vercel)
 
-Panduan ini memandu Anda memasang **Backend Google Apps Script (Pure REST API)** dan men-deploy **Frontend Si-MAKO ke Vercel** langkah demi langkah.
+Panduan ini memandu pemasangan **Backend Google Apps Script (REST API)** dan **Frontend di Vercel** untuk satu usaha konveksi, langkah demi langkah.
 
-## Bagian 1: Instalasi Backend (Google Apps Script)
+> **Pakai akun Google milik klien** (pemilik usaha), bukan akun Anda sendiri sebagai pemasang. Data, spreadsheet, dan kode backend akan berada di Google Drive akun tersebut.
+
+## Bagian 1: Backend (Google Apps Script)
 
 1. Buka [https://script.google.com](https://script.google.com) lalu klik **Proyek Baru (New Project)**.
 2. Ubah nama proyek menjadi **Si-MAKO REST API Backend**.
-3. Pada file `Code.gs` (atau ganti namanya menjadi `Kode.gs`), hapus seluruh kode bawaan lalu tempel (*paste*) seluruh isi dari berkas **`Kode.gs`** yang disertakan terpisah.
-4. Tekan **Ctrl + S** (Simpan).
-5. **Jalankan `setupAppEnvironment()` — HANYA SEKALI:**
-   - Pada dropdown daftar fungsi di toolbar atas editor Apps Script, pilih **`setupAppEnvironment`**.
-   - Klik tombol **Run (Jalankan)**.
-   - Saat muncul jendela meminta izin akses (*Authorization required*), klik **Review permissions** -> pilih akun Google Anda -> klik **Advanced** -> klik **Go to Si-MAKO REST API Backend (unsafe)** -> klik **Allow (Izinkan)**.
-   - Periksa panel **Execution log** di bagian bawah. Pastikan muncul catatan sukses beserta `SPREADSHEET_ID`, `ROOT_FOLDER_ID`, `UPLOADS_FOLDER`, dan `EXPORTS_FOLDER`.
-   - Buka Google Drive Anda: folder **`Folder Si-MAKO`** beserta file **`Database - Si-MAKO Konveksi`** (berisi sheet `AppConfig` + 11 sheet operasional) sudah otomatis dibuat, dan email Google Anda sudah terdaftar otomatis sebagai **Owner** di sheet `Pengguna`.
-   - **Jangan** menjalankan `setupAppEnvironment()` berulang kali dari akun berbeda agar tidak membuat folder/spreadsheet baru.
-6. **Deploy sebagai Web App (REST API):**
-   - Klik tombol **Deploy** di kanan atas -> pilih **New deployment**.
-   - Klik ikon roda gigi di sebelah *Select type* -> pilih **Web app**.
-   - Isi konfigurasi berikut secara persis:
-     - **Description**: `Si-MAKO REST API v3`
-     - **Execute as**: **Me** (Email Anda)
-     - **Who has access**: **Anyone** (Siapa saja — wajib agar `fetch()` dari Vercel tidak terblokir CORS)
-   - Klik **Deploy**.
-   - Salin (**Copy**) **Web app URL** yang berakhiran `/exec` (contoh: `https://script.google.com/macros/s/AKfycb.../exec`).
+3. Buka file `Code.gs`, hapus seluruh isinya, lalu tempel seluruh isi berkas **`Kode.gs`** v3.1. Tekan **Ctrl + S**.
+4. **Jalankan `setupAppEnvironment()` — CUKUP SEKALI:**
+   - Pada dropdown fungsi di toolbar, pilih **`setupAppEnvironment`**, lalu klik **Run**.
+   - Saat diminta izin, klik **Review permissions**, pilih akun Google klien, klik **Advanced**, klik **Go to Si-MAKO REST API Backend (unsafe)**, lalu klik **Allow**.
+   - Periksa **Execution log**. Harus ada tiga hal:
+     - ID spreadsheet & folder.
+     - Baris **`🔑 Sandi sementara Owner`**, contoh `pemilik@gmail.com → k7mqp2xwtr`. **Catat sandi ini** dan berikan kepada Owner.
+     - Baris `✅ Trigger keepWarm ... aktif`.
+   - Di Google Drive, pastikan folder **`Folder Si-MAKO`** dan file **`Database - Si-MAKO Konveksi`** (sheet `AppConfig` + 11 sheet) sudah terbentuk. Email akun klien otomatis terdaftar sebagai **Owner** di sheet `Pengguna`.
+5. **Deploy sebagai Web App:**
+   1. Klik **Deploy → New deployment**, klik ikon roda gigi, lalu pilih **Web app**.
+   2. Isi pengaturannya:
+      - **Description**: `Si-MAKO v3.1`
+      - **Execute as**: **Me**
+      - **Who has access**: **Anyone**. Pilihan ini wajib agar `fetch()` dari Vercel tidak terblokir. Aksesnya tetap aman karena setiap permintaan data wajib membawa token login.
+   3. Klik **Deploy**, lalu salin **Web app URL** yang berakhiran `/exec`.
 
-## Bagian 2: Konfigurasi URL API di Frontend
+## Bagian 2: Konfigurasi frontend
 
-1. Ekstrak berkas **`simako-vercel-frontend.zip`** ke sebuah folder di komputer Anda, misalnya `C:\simako-frontend`.
-2. Pastikan di dalam folder tersebut langsung terlihat susunan berikut (tidak ada folder pembungkus lagi di dalamnya):
-   - `index.html`
-   - `vercel.json`
-   - `css/style.css`
-   - `js/app.js`
-3. Buka berkas **`js/app.js`** menggunakan editor teks (VS Code / Notepad).
-4. Pada baris ke-12, ganti nilai `GAS_URL` dengan URL `/exec` yang baru saja Anda salin dari Google Apps Script:
+1. Siapkan folder frontend dengan susunan berikut:
+   ```
+   index.html
+   vercel.json
+   css/style.css
+   js/config.js     ← satu-satunya file yang diedit per klien
+   js/app.js
+   ```
+2. Buka **`js/config.js`**, lalu isi `GAS_URL` dengan URL `/exec` klien:
    ```javascript
-   const GAS_URL = 'https://script.google.com/macros/s/AKfycbx_URL_ANDA_DI_SINI/exec';
+   window.SIMAKO_CONFIG = {
+     GAS_URL: 'https://script.google.com/macros/s/AKfycb..._URL_KLIEN_.../exec'
+   };
    ```
-5. Simpan perubahan pada berkas `js/app.js`.
-   *(Tips: Apabila Anda sudah terlanjur men-deploy ke Vercel sebelum mengganti `GAS_URL`, Anda tetap bisa menempelkan URL `/exec` langsung melalui menu **Atur URL API Backend** pada layar masuk Si-MAKO di browser).*
+3. Simpan. **Jangan** mengedit `app.js`.
 
-## Bagian 3: Deploy Frontend ke Vercel
+> Kotak "Atur URL API Backend" di layar masuk sengaja disembunyikan dari pengguna. Untuk keperluan teknisi, buka aplikasi dengan akhiran `?setup=1`, misalnya `https://app-klien.vercel.app/?setup=1`.
 
-Anda dapat memilih salah satu dari dua metode berikut untuk men-deploy ke Vercel:
+## Bagian 3: Deploy frontend ke Vercel
 
-### Metode A — via Vercel CLI (Paling Cepat dari Terminal)
+**Metode A — Vercel CLI**
+```bash
+cd "C:\simako-klien-x"
+npx vercel --prod
+```
 
-1. Buka terminal (**PowerShell** atau **Command Prompt**) dan arahkan langsung ke folder hasil ekstraksi tempat `index.html` berada:
-   ```bash
-   cd "C:\simako-frontend"
-   ```
-2. Pastikan perintah `dir` (Windows) atau `ls` (Mac/Linux) menampilkan `index.html`, `css`, dan `js` di baris teratas.
-3. Jalankan perintah deploy Vercel:
-   ```bash
-   npx vercel --prod
-   ```
-4. Ikuti petunjuk login singkat di layar (tekan Enter untuk pengaturan default). Dalam beberapa detik, Vercel akan memberikan URL produksi seperti `https://simako-frontend.vercel.app`.
+**Metode B — GitHub + Dashboard Vercel**
+```bash
+git init
+git add .
+git commit -m "Si-MAKO v3.1"
+git branch -M main
+git remote add origin https://github.com/USERNAME/NAMA-REPO.git
+git push -u origin main
+```
+Setelah itu buka [vercel.com/new](https://vercel.com/new), klik **Import** pada repo tersebut. Biarkan **Framework Preset** pada *Other* dan **Root Directory** pada `./`, lalu klik **Deploy**.
 
-### Metode B — via GitHub + Dashboard Vercel (Otomatis Update Setiap Push)
+## Bagian 4: Uji coba
 
-1. Buka terminal di dalam folder hasil ekstraksi (`C:\simako-frontend` — tempat `index.html` berada di root), lalu jalankan:
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit Si-MAKO GAS-PRO-API"
-   git branch -M main
-   git remote add origin https://github.com/USERNAME/NAMA-REPO.git
-   git push -u origin main
-   ```
-2. Buka [https://vercel.com/new](https://vercel.com/new), login dengan akun GitHub Anda, lalu klik **Import** pada repositori tersebut.
-3. Biarkan **Framework Preset** pada pilihan *Other* dan **Root Directory** pada `./`, lalu klik **Deploy**.
+1. Buka URL Vercel. Layar masuk harus meminta **email + sandi**.
+2. Masuk dengan email Owner + sandi sementara dari log. Aplikasi akan **mewajibkan pembuatan sandi baru** (minimal 8 karakter).
+3. Pastikan dashboard tampil, lalu uji tambah pelanggan dan buat order. Cek data tercatat di Google Sheets.
+4. Muat ulang halaman. Aplikasi harus langsung tampil tanpa menunggu.
+5. Tekan F12, buka tab **Network**, dan pastikan semua `POST` memakai `text/plain;charset=utf-8` tanpa *CORS error*. Ketik `Perf.summary()` di tab **Console** untuk melihat waktu respons.
 
-## Bagian 4: Pengujian Aplikasi (Test Checklist)
+## Bagian 5: Menambah Admin (staf)
 
-1. Buka URL Vercel Anda di browser.
-2. Pada **Layar Masuk Si-MAKO**, masukkan alamat email Google yang Anda gunakan saat menjalankan `setupAppEnvironment()` (atau email lain yang telah didaftarkan pada sheet `Pengguna` dengan status `Aktif = Ya`).
-3. Klik **Masuk ke Dashboard** dan pastikan data awal berhasil dimuat (`doGet`).
-4. Uji coba tambah pelanggan atau buat order baru (`doPost`) dan pastikan data langsung tercatat di Google Sheets.
-5. Buka **Chrome DevTools (F12) -> tab Network**, pastikan seluruh request `POST` menggunakan `text/plain;charset=utf-8` dan berjalan lancar tanpa *CORS error*.
+1. Owner membuka **Pengaturan → + Tambah Pengguna**, lalu mengisi email, nama, dan peran **Admin**, kemudian klik **Simpan**.
+2. Aplikasi menawarkan **Buat Sandi Sementara**. Sandi tampil **sekali**; klik **Salin** atau **Kirim lewat WhatsApp**.
+3. Admin masuk dengan sandi itu dan wajib membuat sandi sendiri.
+4. Admin lupa sandi? Owner membuka **Detail** pengguna lalu klik **Buat Sandi Sementara** lagi.
+
+## Bagian 6: Lupa sandi Owner
+
+Buka editor Apps Script, jalankan fungsi **`resetSandiOwner`**, lalu baca sandi sementara baru di **Execution log**.
+
+## Bagian 7: Update kode di kemudian hari
+
+Selalu lewat **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy**. Jangan memakai "New deployment", karena URL `/exec` akan berubah dan aplikasi di Vercel berhenti tersambung.
+
+## Catatan kuota & pemeliharaan
+
+- Trigger `keepWarm` (tiap 10 menit, 06:00–22:00 WIB) menjaga aplikasi tetap cepat. Pemakaiannya diperkirakan beberapa menit per hari dari kuota trigger, yang untuk akun Gmail gratis sekitar 90 menit per hari. Fungsi pengaturnya:
+  - `matikanKeepWarm()` untuk mematikan.
+  - `nyalakanKeepWarm()` untuk menyalakan lagi.
+- `cekPerforma()` menampilkan status cache, trigger, dan ukuran Script Properties.
+- Jangan menghapus `TOKEN_SECRET` di **Project Settings → Script Properties**. Bila terhapus, semua pengguna perlu masuk ulang; data tidak hilang.
