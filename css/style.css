@@ -1961,3 +1961,69 @@
   .data-table tr.pager-row td { text-align: center; padding: 12px 8px; }
   .data-table tr.pager-row .pager-info { display: inline-block; margin-left: 10px; font-size: 12px; color: var(--text-muted); }
   .boot-error { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px; }
+
+  /* ==========================================================================
+   * v3.2 — Beranda tugas & navigasi bawah HP
+   * ========================================================================== */
+  #homeTaskPanel { display: flex; flex-direction: column; gap: 14px; margin-bottom: 24px; max-width: 720px; }
+  .home-hello { display: flex; flex-direction: column; gap: 2px; }
+  .home-date { font-size: 13px; color: var(--text-muted); font-weight: 500; text-transform: capitalize; }
+  .home-name { font-size: 22px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.3px; }
+  .home-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .home-action {
+    min-height: 92px; border-radius: 18px; border: 1px solid var(--border-color); background: var(--bg-surface, #fff);
+    color: var(--text-primary); font: inherit; font-size: 16px; font-weight: 700; cursor: pointer;
+    display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; padding: 16px; text-align: left;
+  }
+  .home-action.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .home-action:focus-visible, .home-task:focus-visible, .home-unpaid:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+  .home-unpaid {
+    border: 1px solid var(--border-color); border-radius: 18px; background: var(--bg-surface, #fff); padding: 16px;
+    display: flex; flex-direction: column; gap: 4px; text-align: left; font: inherit; color: var(--text-primary); cursor: pointer;
+  }
+  .home-unpaid-label { font-size: 13px; color: var(--text-muted); font-weight: 600; }
+  .home-unpaid-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .home-unpaid-amount { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+  .home-link { font-size: 14px; font-weight: 600; color: var(--primary); }
+  .home-section { display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: 700; color: var(--text-primary); margin-top: 6px; }
+  .home-count { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+  .home-tasks { display: flex; flex-direction: column; gap: 10px; }
+  .home-task {
+    display: flex; gap: 12px; align-items: center; width: 100%; min-height: 64px; padding: 12px 14px;
+    border: 1px solid var(--border-color); border-radius: 16px; background: var(--bg-surface, #fff);
+    font: inherit; color: var(--text-primary); text-align: left; cursor: pointer;
+  }
+  .home-task-bar { width: 6px; align-self: stretch; border-radius: 3px; background: var(--text-muted); flex: none; }
+  .home-task-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .home-task-title { font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-task-sub { font-size: 13px; color: var(--text-muted); }
+  .home-chip { font-size: 12px; font-weight: 700; padding: 6px 10px; border-radius: 999px; white-space: nowrap; background: var(--bg-subtle); color: var(--text-secondary, var(--text-primary)); }
+  .tone-hot .home-task-bar { background: #C2410C; } .tone-hot .home-chip { background: #FFEDD5; color: #9A3412; }
+  .tone-warm .home-task-bar { background: #B45309; } .tone-warm .home-chip { background: #FEF3C7; color: #854D0E; }
+  .tone-ok .home-task-bar { background: #1F8A55; } .tone-ok .home-chip { background: #DCFCE7; color: #14633D; }
+  .home-empty { padding: 16px; border: 1px dashed var(--border-color); border-radius: 16px; color: var(--text-muted); font-size: 14px; }
+  .home-alert {
+    padding: 12px 14px; border-radius: 14px; border: 0; background: var(--warning-soft); color: var(--warning-text);
+    font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer;
+  }
+  .home-more { font-size: 15px; color: var(--text-muted); margin-top: 10px; }
+
+  .bottom-nav { display: none; }
+  @media (max-width: 767px) {
+    .bottom-nav {
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
+      background: var(--bg-surface, #fff); border-top: 1px solid var(--border-color);
+      padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+    .bottom-nav button {
+      min-height: 62px; border: 0; background: transparent; color: var(--text-muted);
+      font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    }
+    .bottom-nav button.active { color: var(--primary); font-weight: 700; }
+    .app-main { padding-bottom: 76px; }
+    .header-right .btn-primary { display: none; }
+    body:has(.modal-backdrop.open) .bottom-nav, body:has(.app-sidebar.open) .bottom-nav, body:has(.sidebar.open) .bottom-nav { display: none; }
+    .toast-stack { bottom: 84px !important; }
+  }

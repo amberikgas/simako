@@ -1141,16 +1141,17 @@
     });
     const activeNav = document.getElementById('nav-' + viewName);
     if (activeNav) activeNav.classList.add('active');
+    syncBottomNav_(viewName);
 
     const titles = {
-      dashboard: isOwnerRole() ? 'Dashboard Eksekutif & Produksi' : 'Dashboard Ringkas Produksi',
-      order: 'Manajemen Order & Pembayaran',
-      pelanggan: 'Database & Riwayat Pelanggan',
-      hpp: 'Kalkulator Harga Pokok Produksi (HPP)',
-      stok: 'Manajemen Stok Bahan & Mutasi',
-      keuangan: 'Keuangan Dasar, Arus Kas, & Piutang',
-      laporan: 'Laporan Analitik & Visualisasi Bisnis',
-      pengaturan: 'Pengaturan Usaha & Hak Akses Pengguna'
+      dashboard: 'Beranda',
+      order: 'Pesanan',
+      pelanggan: 'Pelanggan',
+      hpp: 'Hitung Modal',
+      stok: 'Stok Bahan',
+      keuangan: 'Keuangan',
+      laporan: 'Laporan',
+      pengaturan: 'Pengaturan'
     };
     document.getElementById('headerPageTitle').textContent = titles[viewName] || 'Si-MAKO';
 
@@ -1188,10 +1189,10 @@
     const diffDays = Math.ceil((dl.getTime() - today.getTime()) / (1000 * 3600 * 24));
 
     if (diffDays < 0) {
-      return { label: 'Terlambat ' + Math.abs(diffDays) + ' hr', badgeClass: 'badge-danger', daysDiff: diffDays };
+      return { label: 'Telat ' + Math.abs(diffDays) + ' hari', badgeClass: 'badge-danger', daysDiff: diffDays };
     }
     if (diffDays <= 3) {
-      return { label: diffDays === 0 ? 'Hari Ini!' : ('H-' + diffDays + ' Hari'), badgeClass: 'badge-warning', daysDiff: diffDays };
+      return { label: diffDays === 0 ? 'Hari ini' : (diffDays === 1 ? 'Besok' : diffDays + ' hari lagi'), badgeClass: 'badge-warning', daysDiff: diffDays };
     }
     return { label: diffDays + ' hari lagi', badgeClass: 'badge-info', daysDiff: diffDays };
   }
@@ -1204,7 +1205,7 @@
       'Diambil': 'badge-neutral',
       'Batal': 'badge-danger'
     };
-    return '<span class="badge ' + (map[status] || 'badge-neutral') + '">' + escapeHtml(status) + '</span>';
+    return '<span class="badge ' + (map[status] || 'badge-neutral') + '">' + escapeHtml(statusLabel_(status)) + '</span>';
   }
 
   function getPaymentStatusBadge(status) {
@@ -1214,12 +1215,114 @@
       'Belum Bayar': 'badge-danger',
       'Batal': 'badge-neutral'
     };
-    return '<span class="badge ' + (map[status] || 'badge-danger') + '">' + escapeHtml(status || 'Belum Bayar') + '</span>';
+    return '<span class="badge ' + (map[status] || 'badge-danger') + '">' + escapeHtml(PAY_LABEL_[status || 'Belum Bayar'] || status) + '</span>';
+  }
+
+  /**
+   * ==========================================================================
+   * v3.2 — BERANDA BERORIENTASI TUGAS + NAVIGASI BAWAH (HP)
+   * ==========================================================================
+   */
+  const STATUS_LABEL_ = { 'Baru': 'Diterima', 'Diproses': 'Dijahit', 'Selesai': 'Selesai', 'Diambil': 'Diambil', 'Batal': 'Batal' };
+  const PAY_LABEL_ = { 'Lunas': 'Lunas', 'DP': 'Uang muka', 'Belum Bayar': 'Belum bayar', 'Batal': 'Batal' };
+  function statusLabel_(s) { return STATUS_LABEL_[s] || s || '-'; }
+
+  function renderHomePanel_() {
+    const el = document.getElementById('homeTaskPanel');
+    const d = APP_STATE.data;
+    if (!el || !d) return;
+    const orders = d.orders || [];
+    const user = d.user || {};
+    const firstName = String(user.nama || '').split(' ')[0] || 'Selamat datang';
+    const todayTxt = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' });
+
+    const unpaid = orders.filter(function(o) { return o.status_order !== 'Batal' && (Number(o.sisa_tagihan) || 0) > 0; });
+    const unpaidTotal = unpaid.reduce(function(a, o) { return a + (Number(o.sisa_tagihan) || 0); }, 0);
+
+    const todo = orders.filter(function(o) {
+      return o.status_order === 'Baru' || o.status_order === 'Diproses' || o.status_order === 'Selesai';
+    }).map(function(o) {
+      const u = getDeadlineUrgencyInfo(o.deadline, o.status_order);
+      const ready = o.status_order === 'Selesai';
+      return { o: o, u: u, ready: ready, sortKey: ready ? 9000 : u.daysDiff };
+    }).sort(function(a, b) { return a.sortKey - b.sortKey; }).slice(0, 6);
+
+    const lowStock = (d.materials || []).filter(function(m) {
+      return (Number(m.stok_saat_ini) || 0) <= (Number(m.stok_minimum) || 0);
+    });
+
+    const items = todo.length === 0
+      ? '<div class="home-empty">Belum ada pesanan yang sedang dikerjakan. Tekan <strong>Catat Pesanan</strong> untuk mulai.</div>'
+      : todo.map(function(t) {
+          const o = t.o;
+          const qty = (o.items || []).reduce(function(a, it) { return a + (Number(it.qty) || 0); }, 0);
+          const tone = t.ready ? 'ok' : (t.u.daysDiff <= 1 ? 'hot' : (t.u.daysDiff <= 3 ? 'warm' : 'calm'));
+          const chip = t.ready ? 'Siap diambil' : t.u.label;
+          return '<button type="button" class="home-task tone-' + tone + '" data-id="' + escapeHtml(o.id_order) + '" onclick="openOrderDetailModal(this.dataset.id)">' +
+            '<span class="home-task-bar" aria-hidden="true"></span>' +
+            '<span class="home-task-main">' +
+              '<span class="home-task-title">' + escapeHtml(o.nama_pelanggan) + '</span>' +
+              '<span class="home-task-sub">' + (qty ? qty.toLocaleString('id-ID') + ' pcs · ' : '') + escapeHtml(statusLabel_(o.status_order).toLowerCase()) + '</span>' +
+            '</span>' +
+            '<span class="home-chip">' + escapeHtml(chip) + '</span>' +
+          '</button>';
+        }).join('');
+
+    el.innerHTML =
+      '<div class="home-hello"><div class="home-date">' + escapeHtml(todayTxt) + '</div>' +
+        '<div class="home-name">Halo, ' + escapeHtml(firstName) + '</div></div>' +
+      '<div class="home-actions">' +
+        '<button type="button" class="home-action primary" onclick="openOrderModal()">' +
+          '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>' +
+          '<span>Catat Pesanan</span></button>' +
+        '<button type="button" class="home-action" onclick="startPaymentFromHome_()">' +
+          '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#1F8A55" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>' +
+          '<span>Terima Bayaran</span></button>' +
+      '</div>' +
+      '<button type="button" class="home-unpaid" onclick="switchView(\'order\')">' +
+        '<span class="home-unpaid-label">Belum dibayar pelanggan</span>' +
+        '<span class="home-unpaid-row"><span class="home-unpaid-amount">' + formatRupiah(unpaidTotal) + '</span>' +
+        '<span class="home-link">Lihat ' + unpaid.length + ' tagihan</span></span>' +
+      '</button>' +
+      '<div class="home-section"><span>Yang perlu dikerjakan</span><span class="home-count">' + todo.length + ' pesanan</span></div>' +
+      '<div class="home-tasks">' + items + '</div>' +
+      (lowStock.length && isOwnerRole()
+        ? '<button type="button" class="home-alert" onclick="switchView(\'stok\')">' + lowStock.length + ' bahan hampir habis: ' +
+            escapeHtml(lowStock.slice(0, 2).map(function(m) { return m.nama_bahan; }).join(', ')) + (lowStock.length > 2 ? ', …' : '') + '</button>'
+        : '') +
+      '<div class="home-section home-more"><span>Ringkasan</span></div>';
+  }
+
+  /** Terima bayaran dari beranda: pilih pesanan yang masih punya tagihan. */
+  function startPaymentFromHome_() {
+    const d = APP_STATE.data;
+    const list = (d && d.orders || []).filter(function(o) { return o.status_order !== 'Batal' && (Number(o.sisa_tagihan) || 0) > 0; });
+    if (!list.length) { showToast('Semua pesanan sudah lunas.', 'success'); return; }
+    if (list.length === 1) { openPaymentModal(list[0].id_order); return; }
+    document.getElementById('recordDetailModalTitle').textContent = 'Pilih pesanan yang dibayar';
+    document.getElementById('recordDetailModalBody').innerHTML = '<div class="home-tasks">' + list.map(function(o) {
+      return '<button type="button" class="home-task tone-calm" data-id="' + escapeHtml(o.id_order) + '" onclick="closeModal(\'recordDetailModal\'); openPaymentModal(this.dataset.id)">' +
+        '<span class="home-task-bar" aria-hidden="true"></span><span class="home-task-main">' +
+        '<span class="home-task-title">' + escapeHtml(o.nama_pelanggan) + '</span>' +
+        '<span class="home-task-sub">' + escapeHtml(o.no_invoice) + '</span></span>' +
+        '<span class="home-chip">' + formatRupiah(o.sisa_tagihan) + '</span></button>';
+    }).join('') + '</div>';
+    document.getElementById('recordDetailModalFooter').innerHTML = '<button type="button" class="btn btn-secondary" onclick="closeModal(\'recordDetailModal\')">Batal</button>';
+    openModal('recordDetailModal');
+  }
+
+  function syncBottomNav_(viewName) {
+    document.querySelectorAll('.bottom-nav [data-view]').forEach(function(b) {
+      const on = b.dataset.view === viewName;
+      b.classList.toggle('active', on);
+      if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+    });
   }
 
   function renderDashboardView() {
     const d = APP_STATE.data;
     if (!d) return;
+    renderHomePanel_();
 
     const orders = d.orders || [];
     const activeOrders = orders.filter(function(o) {
@@ -1246,44 +1349,44 @@
     let kpiHtml = '' +
       '<div class="kpi-card">' +
         '<div class="kpi-top">' +
-          '<span class="label-sm">Order Aktif Produksi</span>' +
+          '<span class="label-sm">Sedang dikerjakan</span>' +
           '<div class="kpi-icon" style="background:var(--primary-soft); color:var(--primary);">' +
             '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>' +
           '</div>' +
         '</div>' +
         '<div class="kpi-value tnum">' + activeOrders.length + ' Order</div>' +
-        '<div class="kpi-foot">Status Baru & Sedang Diproses</div>' +
+        '<div class="kpi-foot">Pesanan diterima & sedang dijahit</div>' +
       '</div>' +
 
       '<div class="kpi-card">' +
         '<div class="kpi-top">' +
-          '<span class="label-sm">Deadline <= 3 Hari / Terlambat</span>' +
+          '<span class="label-sm">Tenggat dekat / telat</span>' +
           '<div class="kpi-icon" style="background:var(--warning-soft); color:var(--warning-text);">' +
             '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
           '</div>' +
         '</div>' +
         '<div class="kpi-value tnum" style="color:' + (urgentOrders.length > 0 ? 'var(--danger-text)' : 'var(--text-primary)') + ';">' + urgentOrders.length + ' Order</div>' +
-        '<div class="kpi-foot">Perlu prioritas penyelesaian segera</div>' +
+        '<div class="kpi-foot">Kerjakan lebih dulu</div>' +
       '</div>';
 
     if (isOwnerRole()) {
       kpiHtml += '' +
         '<div class="kpi-card">' +
           '<div class="kpi-top">' +
-            '<span class="label-sm">Omzet Bulan Berjalan</span>' +
+            '<span class="label-sm">Penjualan bulan ini</span>' +
             '<span class="badge-owner-mini">Owner</span>' +
           '</div>' +
           '<div class="kpi-value tnum" style="color:var(--primary);">' + formatRupiah(monthlyOmzet) + '</div>' +
-          '<div class="kpi-foot">' + monthlyOrders.length + ' order masuk pada bulan ini</div>' +
+          '<div class="kpi-foot">' + monthlyOrders.length + ' pesanan masuk bulan ini</div>' +
         '</div>' +
 
         '<div class="kpi-card">' +
           '<div class="kpi-top">' +
-            '<span class="label-sm">Total Piutang Belum Lunas</span>' +
+            '<span class="label-sm">Belum dibayar</span>' +
             '<span class="badge-owner-mini">Owner</span>' +
           '</div>' +
           '<div class="kpi-value tnum" style="color:var(--danger-text);">' + formatRupiah(totalPiutang) + '</div>' +
-          '<div class="kpi-foot">Akumulasi sisa tagihan seluruh order</div>' +
+          '<div class="kpi-foot">Total sisa tagihan semua pesanan</div>' +
         '</div>';
     }
 
