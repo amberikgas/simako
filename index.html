@@ -1023,127 +1023,110 @@
 
   <!-- 3. Modal Buat / Edit Order (Multi-Item + DP + Bukti Transfer) -->
   <div id="orderModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="orderModalTitle">
-    <div class="modal-container modal-lg">
+    <div class="modal-container modal-lg order-wizard">
       <div class="modal-header">
         <div>
-          <h3 class="modal-title" id="orderModalTitle">Buat Order Konveksi Baru</h3>
-          <div class="card-subtitle">Isi data pelanggan, rincian item produksi, dan pembayaran DP awal</div>
+          <h3 class="modal-title" id="orderModalTitle">Catat Pesanan Baru</h3>
         </div>
-        <button type="button" class="modal-close" aria-label="Tutup Modal" onclick="closeModal('orderModal')">✕</button>
+        <button type="button" class="modal-close" aria-label="Tutup" onclick="closeModal('orderModal')">✕</button>
       </div>
+
+      <ol class="wizard-steps" aria-label="Langkah pengisian">
+        <li><button type="button" class="wizard-step" data-step="1" onclick="goOrderStep_(1)"><span class="wizard-num">1</span><span>Pelanggan</span></button></li>
+        <li><button type="button" class="wizard-step" data-step="2" onclick="goOrderStep_(2)"><span class="wizard-num">2</span><span>Barang</span></button></li>
+        <li><button type="button" class="wizard-step" data-step="3" onclick="goOrderStep_(3)"><span class="wizard-num">3</span><span id="wizardStep3Label">Bayar</span></button></li>
+      </ol>
+
       <div class="modal-body">
         <input type="hidden" id="orderIdInput">
 
-        <!-- Baris 1: Pelanggan & Tanggal -->
-        <div class="grid-12" style="gap:16px; margin-bottom:4px;">
-          <div class="col-span-6 form-group">
-            <label class="form-label form-label-between">
-              <span>Pilih / Cari Pelanggan <span class="req">*</span></span>
-              <button type="button" class="btn btn-ghost btn-xs" style="height:20px; padding:0 6px; font-size:11px;" onclick="closeModal('orderModal'); openCustomerModal();">+ Pelanggan Baru</button>
+        <!-- Langkah 1: Pelanggan & jadwal -->
+        <section class="wizard-pane" data-pane="1">
+          <div class="form-group">
+            <label class="form-label form-label-between" for="orderCustomerSearchInput">
+              <span>Pelanggan <span class="req">*</span></span>
+              <button type="button" class="btn btn-ghost btn-xs" onclick="closeModal('orderModal'); openCustomerModal();">+ Pelanggan baru</button>
             </label>
-            <div style="display:grid; grid-template-columns: 1fr 1.5fr; gap:8px;">
-              <input type="text" id="orderCustomerSearchInput" class="form-control" placeholder="Ketik nama/WA..." oninput="filterOrderCustomerDropdown(this.value)">
-              <select id="orderPelangganSelect" class="form-select"></select>
+            <div class="wizard-customer">
+              <input type="text" id="orderCustomerSearchInput" class="form-control" placeholder="Cari nama atau nomor WA" oninput="filterOrderCustomerDropdown(this.value)">
+              <select id="orderPelangganSelect" class="form-select" aria-label="Pilih pelanggan"></select>
             </div>
           </div>
-          <div class="col-span-3 form-group">
-            <label class="form-label">Tanggal Order</label>
-            <input type="date" id="orderTanggalInput" class="form-control">
+          <div class="wizard-two">
+            <div class="form-group">
+              <label class="form-label" for="orderTanggalInput">Tanggal pesan</label>
+              <input type="date" id="orderTanggalInput" class="form-control">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="orderDeadlineInput">Harus selesai <span class="req">*</span></label>
+              <input type="date" id="orderDeadlineInput" class="form-control">
+            </div>
           </div>
-          <div class="col-span-3 form-group">
-            <label class="form-label">Deadline Selesai <span class="req">*</span></label>
-            <input type="date" id="orderDeadlineInput" class="form-control">
-          </div>
-        </div>
+        </section>
 
-        <!-- Baris 2: Daftar Item Order Dinamis -->
-        <div style="margin-bottom:14px;">
-          <div class="flex-between" style="margin-bottom:10px;">
-            <label class="form-label" style="margin:0;">Rincian Item Produk Konveksi <span class="req">*</span></label>
-            <div class="flex-row">
-              <select id="orderHppRefSelect" class="form-select" style="height:32px; width:auto; min-width:230px; font-size:12px;" onchange="applyHppReferenceToNewItem(this.value)">
-                <option value="">+ Isi dari Acuan Harga Katalog...</option>
-              </select>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="addOrderItemRow()">+ Tambah Baris Item</button>
-            </div>
+        <!-- Langkah 2: Barang & ukuran -->
+        <section class="wizard-pane" data-pane="2" hidden>
+          <div id="orderItemsContainer" class="order-items-cards"></div>
+          <div class="wizard-add-row">
+            <button type="button" class="btn btn-secondary" onclick="addOrderItemRow()">+ Tambah barang lain</button>
+            <select id="orderHppRefSelect" class="form-select" aria-label="Isi dari daftar hitungan modal" onchange="applyHppReferenceToNewItem(this.value)">
+              <option value="">Ambil dari daftar harga…</option>
+            </select>
           </div>
-          <div class="order-items-wrapper">
-            <div class="order-items-header">
-              <div>Jenis Produk / Model</div>
-              <div>Rincian Ukuran (Size)</div>
-              <div>Qty (Pcs)</div>
-              <div>Harga Satuan</div>
-              <div style="text-align:right; padding-right:6px;">Subtotal</div>
-              <div></div>
-            </div>
-            <div id="orderItemsContainer"></div>
+          <div class="form-group" style="margin-top:16px; margin-bottom:0;">
+            <label class="form-label" for="orderCatatanInput">Catatan produksi (sablon, bordir, bahan, jahitan)</label>
+            <textarea id="orderCatatanInput" class="form-control" rows="3" placeholder="Contoh: sablon 3 warna di dada, bordir lengan kanan"></textarea>
           </div>
-        </div>
+        </section>
 
-        <!-- Baris 3: Bagian DP Awal (Hanya saat tambah order baru) -->
-        <div id="orderInitialDpSection" style="background:var(--bg-subtle); border:1px solid var(--border-color); border-radius:12px; padding:12px 16px; margin-bottom:14px;">
-          <div class="label-md" style="margin-bottom:12px; color:var(--primary); display:flex; align-items:center; gap:6px;">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-            <span>Pembayaran DP Awal (Opsional saat Order Masuk)</span>
-          </div>
-          <div class="grid-12" style="gap:16px;">
-            <div class="col-span-4 form-group" style="margin-bottom:0;">
-              <label class="form-label">Nominal DP Masuk</label>
-              <div class="input-rupiah-group">
-                <span class="input-rupiah-prefix">Rp</span>
-                <input type="number" id="orderDpInput" value="0" min="0" step="10000" oninput="recalculateOrderModalSummary()">
+        <!-- Langkah 3: Uang muka & ringkasan -->
+        <section class="wizard-pane" data-pane="3" hidden>
+          <div id="orderInitialDpSection" class="wizard-dp">
+            <div class="wizard-two">
+              <div class="form-group">
+                <label class="form-label" for="orderDpInput">Uang muka diterima</label>
+                <div class="input-rupiah-group">
+                  <span class="input-rupiah-prefix">Rp</span>
+                  <input type="number" id="orderDpInput" value="0" min="0" step="10000" inputmode="numeric" oninput="recalculateOrderModalSummary()">
+                </div>
+                <div class="wizard-dp-quick">
+                  <button type="button" class="chip" onclick="setOrderDpPercent_(0)">Belum ada</button>
+                  <button type="button" class="chip" onclick="setOrderDpPercent_(50)">50%</button>
+                  <button type="button" class="chip" onclick="setOrderDpPercent_(100)">Lunas</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="orderMetodeBayarInput">Cara bayar</label>
+                <select id="orderMetodeBayarInput" class="form-select">
+                  <option value="Transfer BCA">Transfer BCA</option>
+                  <option value="Transfer Mandiri">Transfer Mandiri</option>
+                  <option value="Transfer BRI">Transfer BRI</option>
+                  <option value="QRIS">QRIS</option>
+                  <option value="Tunai">Tunai</option>
+                </select>
               </div>
             </div>
-            <div class="col-span-4 form-group" style="margin-bottom:0;">
-              <label class="form-label">Metode Pembayaran</label>
-              <select id="orderMetodeBayarInput" class="form-select">
-                <option value="Transfer BCA">Transfer BCA</option>
-                <option value="Transfer Mandiri">Transfer Mandiri</option>
-                <option value="Transfer BRI">Transfer BRI</option>
-                <option value="QRIS">QRIS</option>
-                <option value="Tunai">Tunai</option>
-              </select>
-            </div>
-            <div class="col-span-4 form-group" style="margin-bottom:0;">
-              <label class="form-label">Bukti Transfer (Maks 5 MB)</label>
+            <div class="form-group">
+              <label class="form-label" for="orderBuktiFileInput">Foto bukti transfer (opsional, maks 5 MB)</label>
               <input type="file" id="orderBuktiFileInput" class="form-control" accept="image/jpeg,image/png,application/pdf" onchange="handleFileInputPreview(this, 'orderBuktiInfo')">
               <div id="orderBuktiInfo" class="body-sm" style="color:var(--text-muted); margin-top:2px;"></div>
             </div>
           </div>
-        </div>
 
-        <!-- Baris 4: Catatan Spesifikasi Produksi (Kiri 7 Kolom) & Kartu Ringkasan Tagihan (Kanan 5 Kolom) -->
-        <div class="grid-12" style="gap:16px; align-items:stretch;">
-          <div class="col-span-7 form-group" style="margin-bottom:0; display:flex; flex-direction:column;">
-            <label class="form-label">Catatan Spesifikasi Produksi (Sablon, Bordir, Bahan, Jahitan)</label>
-            <textarea id="orderCatatanInput" class="form-control" style="flex:1; min-height:112px;" placeholder="Contoh: Sablon plastisol 3 warna depan, bordir lengan kanan, jahit rantai pundak..."></textarea>
+          <div class="wizard-summary">
+            <div class="wizard-summary-row"><span>Barang</span><strong id="orderSummaryQty">0 pcs</strong></div>
+            <div class="wizard-summary-row"><span>Total pesanan</span><strong class="tnum" id="orderSummaryTotal">Rp 0</strong></div>
+            <div class="wizard-summary-row"><span>Sudah dibayar</span><strong class="tnum ok" id="orderSummaryPaid">Rp 0</strong></div>
+            <div class="wizard-summary-row big"><span>Sisa tagihan</span><strong class="tnum due" id="orderSummaryRemaining">Rp 0</strong></div>
+            <div class="wizard-summary-row"><span>Status bayar</span><span id="orderSummaryStatusBayar" class="badge badge-danger">Belum bayar</span></div>
           </div>
-          <div class="col-span-5" style="display:flex; flex-direction:column;">
-            <label class="form-label" style="margin-bottom:6px;">Ringkasan Kalkulasi Tagihan</label>
-            <div style="background:var(--primary-soft); border:1px solid var(--primary-border); border-radius:12px; padding:16px 18px; flex:1; display:flex; flex-direction:column; justify-content:space-between; gap:8px;">
-              <div class="flex-between">
-                <span class="body-sm" style="color:var(--text-secondary);">Total Harga Order:</span>
-                <strong class="numeric-md tnum" id="orderSummaryTotal">Rp 0</strong>
-              </div>
-              <div class="flex-between">
-                <span class="body-sm" style="color:var(--text-secondary);">Total DP / Dibayar:</span>
-                <strong class="numeric-md tnum" style="color:var(--success-text);" id="orderSummaryPaid">Rp 0</strong>
-              </div>
-              <div class="flex-between" style="padding-top:10px; border-top:1px solid var(--primary-border);">
-                <span class="label-md" style="color:var(--text-primary);">Sisa Tagihan:</span>
-                <strong class="tnum" style="font-size:18px; font-weight:700; color:var(--danger-text);" id="orderSummaryRemaining">Rp 0</strong>
-              </div>
-              <div class="flex-between" style="padding-top:4px;">
-                <span class="body-sm" style="color:var(--text-secondary);">Status Bayar Otomatis:</span>
-                <span id="orderSummaryStatusBayar" class="badge badge-danger">Belum Bayar</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        </section>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" onclick="closeModal('orderModal')">Batal</button>
-        <button type="button" class="btn btn-primary" onclick="submitOrderForm()">Simpan Order</button>
+
+      <div class="modal-footer wizard-footer">
+        <div class="wizard-total"><span>Total</span><strong class="tnum" id="orderFooterTotal">Rp 0</strong></div>
+        <button type="button" class="btn btn-secondary" id="orderBackBtn" onclick="orderWizardBack_()">Batal</button>
+        <button type="button" class="btn btn-primary" id="orderNextBtn" onclick="orderWizardNext_()">Lanjut</button>
       </div>
     </div>
   </div>

@@ -1625,7 +1625,7 @@
 
     // Populate acuan harga katalog dari Kalkulasi HPP
     const refSelect = document.getElementById('orderHppRefSelect');
-    refSelect.innerHTML = '<option value="">+ Isi dari Acuan Harga Katalog...</option>' +
+    refSelect.innerHTML = '<option value="">Ambil dari daftar harga…</option>' +
       (d.productPriceRefs || []).map(function(r) {
         return '<option value="' + r.id + '">' + escapeHtml(r.nama_produk) + ' — ' + formatRupiah(r.harga_jual_per_pcs) + '/pcs</option>';
       }).join('');
@@ -1639,20 +1639,21 @@
     if (editOrderId) {
       const target = (d.orders || []).find(function(o) { return o.id_order === editOrderId; });
       if (!target) return;
-      document.getElementById('orderModalTitle').textContent = 'Ubah Order ' + target.no_invoice;
+      document.getElementById('orderModalTitle').textContent = 'Ubah Pesanan ' + target.no_invoice;
       document.getElementById('orderIdInput').value = target.id_order;
       filterOrderCustomerDropdown('', target.id_pelanggan);
       document.getElementById('orderTanggalInput').value = target.tanggal_order || getTodayYMD();
       document.getElementById('orderDeadlineInput').value = target.deadline || '';
       document.getElementById('orderCatatanInput').value = target.catatan || '';
       document.getElementById('orderInitialDpSection').style.display = 'none';
+      document.getElementById('wizardStep3Label').textContent = 'Ringkasan';
       document.getElementById('orderDpInput').value = target.total_dibayar || 0;
 
       (target.items || []).forEach(function(it) {
         addOrderItemRow(it.jenis_produk, it.ukuran, it.qty, it.harga_satuan);
       });
     } else {
-      document.getElementById('orderModalTitle').textContent = 'Buat Order Konveksi Baru';
+      document.getElementById('orderModalTitle').textContent = 'Catat Pesanan Baru';
       document.getElementById('orderIdInput').value = '';
       document.getElementById('orderTanggalInput').value = getTodayYMD();
       // Default deadline +10 hari
@@ -1661,40 +1662,219 @@
       document.getElementById('orderDeadlineInput').value = dl.toISOString().substring(0, 10);
       document.getElementById('orderCatatanInput').value = '';
       document.getElementById('orderInitialDpSection').style.display = 'block';
+      document.getElementById('wizardStep3Label').textContent = 'Bayar';
       document.getElementById('orderDpInput').value = 0;
-      addOrderItemRow('', 'S, M, L, XL', 24, 75000);
+      addOrderItemRow('');
     }
 
-    recalculateOrderModalSummary();
+    APP_STATE.orderStep = 1;
+    goOrderStep_(1);
     openModal('orderModal');
+  }
+
+  /**
+   * ==========================================================================
+   * v3.2 — FORMULIR PESANAN BERTAHAP + JUMLAH PER UKURAN
+   *  Rincian ukuran disimpan sebagai teks seragam "S (10), M (40), L (50)" di kolom
+   *  `ukuran` yang sudah ada; qty = jumlah semua ukuran. Backend tidak berubah.
+   * ==========================================================================
+   */
+  const DEFAULT_SIZES_ = ['S', 'M', 'L', 'XL', 'XXL'];
+
+  /** "S (10), M (40)" / "M:10, L:14" → [{label,qty}]; "S, M, L" → label tanpa jumlah; selain itu null (teks bebas). */
+  function parseSizes_(text) {
+    const s = String(text || '').trim();
+    if (!s || /^all\s*size$/i.test(s)) return null;
+    const parts = s.split(',').map(function(p) { return p.trim(); }).filter(Boolean);
+    const withQty = [], labels = [];
+    for (let i = 0; i < parts.length; i++) {
+      const m = parts[i].match(/^(.{1,12}?)\s*(?:\((\d+)\)|[:=]\s*(\d+))$/);
+      if (m) { withQty.push({ label: m[1].trim(), qty: Number(m[2] || m[3]) }); continue; }
+      if (parts[i].length <= 6 && !/\s{2,}/.test(parts[i])) { labels.push({ label: parts[i], qty: 0 }); continue; }
+      return null;
+    }
+    if (withQty.length && labels.length) return null;
+    return withQty.length ? withQty : labels;
+  }
+
+  function sizeCellHtml_(label, qty, custom) {
+    const lab = custom
+      ? '<input type="text" class="size-label-input" maxlength="12" placeholder="Ukuran" aria-label="Nama ukuran" value="' + escapeHtml(label || '') + '" oninput="recalculateOrderModalSummary()">'
+      : '<span class="size-label">' + escapeHtml(label) + '</span>';
+    return '<div class="size-cell' + (custom ? ' custom' : '') + '" data-label="' + escapeHtml(label || '') + '">' + lab +
+      '<input type="number" class="size-qty tnum" min="0" inputmode="numeric" placeholder="0" aria-label="Jumlah ukuran ' + escapeHtml(label || 'lain') + '"' +
+      ' value="' + (qty ? Number(qty) : '') + '" oninput="recalculateOrderModalSummary()">' +
+    '</div>';
   }
 
   function addOrderItemRow(jenis, ukuran, qty, harga) {
     const container = document.getElementById('orderItemsContainer');
+    const n = container.querySelectorAll('.order-item-row').length + 1;
+    const parsed = (ukuran === undefined) ? DEFAULT_SIZES_.map(function(l) { return { label: l, qty: 0 }; }) : parseSizes_(ukuran);
+    let sizeMode = Boolean(parsed);
+    let cells = '';
+    if (sizeMode) {
+      const known = {};
+      DEFAULT_SIZES_.forEach(function(l) { known[l] = 0; });
+      const extra = [];
+      parsed.forEach(function(p) {
+        const key = p.label.toUpperCase();
+        if (Object.prototype.hasOwnProperty.call(known, key)) known[key] = p.qty; else extra.push(p);
+      });
+      cells = DEFAULT_SIZES_.map(function(l) { return sizeCellHtml_(l, known[l], false); }).join('') +
+        extra.map(function(p) { return sizeCellHtml_(p.label, p.qty, true); }).join('');
+    } else {
+      cells = DEFAULT_SIZES_.map(function(l) { return sizeCellHtml_(l, 0, false); }).join('');
+    }
+
     const row = document.createElement('div');
-    row.className = 'order-item-row';
-    // Grid layout diatur rapi oleh class .order-item-row di Stylesheet.html
+    row.className = 'order-item-row order-item-card' + (sizeMode ? '' : ' manual');
     row.innerHTML = '' +
-      '<input type="text" class="form-control item-jenis" placeholder="Jenis Produk (mis. Kaos Combed 30s)" value="' + escapeHtml(jenis || '') + '">' +
-      '<input type="text" class="form-control item-ukuran" placeholder="Rincian Ukuran (M:10, L:14)" value="' + escapeHtml(ukuran || 'All Size') + '">' +
-      '<input type="number" class="form-control tnum item-qty" placeholder="Qty" min="1" value="' + (qty !== undefined ? qty : 12) + '" oninput="recalculateOrderModalSummary()">' +
-      '<div class="input-rupiah-group">' +
-        '<span class="input-rupiah-prefix">Rp</span>' +
-        '<input type="number" class="item-harga" min="0" step="500" value="' + (harga !== undefined ? harga : 75000) + '" oninput="recalculateOrderModalSummary()">' +
+      '<div class="oi-head">' +
+        '<span class="oi-num">' + n + '</span>' +
+        '<label class="sr-only" for="oiJenis' + n + '">Jenis barang</label>' +
+        '<input type="text" id="oiJenis' + n + '" class="form-control item-jenis" placeholder="Jenis barang, mis. Kaos Combed 30s hitam" value="' + escapeHtml(jenis || '') + '">' +
+        '<button type="button" class="btn btn-ghost btn-sm oi-remove" onclick="removeOrderItemRow(this)" aria-label="Hapus barang ini">Hapus</button>' +
       '</div>' +
-      '<div class="num-col numeric-md tnum item-subtotal" style="padding:0 6px; text-align:right;">Rp 0</div>' +
-      '<button type="button" class="btn btn-danger-soft btn-xs" onclick="removeOrderItemRow(this)" title="Hapus baris" aria-label="Hapus baris item">✕</button>';
+      '<div class="oi-sizes">' +
+        '<div class="oi-label-row"><span class="oi-label">Jumlah per ukuran</span>' +
+          '<button type="button" class="btn btn-ghost btn-xs" onclick="toggleItemSizeMode_(this)">' + (sizeMode ? 'Tanpa ukuran' : 'Pakai ukuran') + '</button></div>' +
+        '<div class="size-grid">' + cells +
+          '<button type="button" class="size-add" onclick="addCustomSize_(this)">+ Ukuran lain</button>' +
+        '</div>' +
+        '<div class="oi-manual">' +
+          '<label class="oi-label" for="oiUk' + n + '">Keterangan ukuran</label>' +
+          '<input type="text" id="oiUk' + n + '" class="form-control item-ukuran-manual" placeholder="Mis. All size, atau ukuran anak" value="' + escapeHtml(sizeMode ? '' : (ukuran || 'All Size')) + '" oninput="recalculateOrderModalSummary()">' +
+        '</div>' +
+      '</div>' +
+      '<input type="hidden" class="item-ukuran" value="' + escapeHtml(ukuran || '') + '">' +
+      '<div class="oi-foot">' +
+        '<div class="oi-field"><label class="oi-label" for="oiQty' + n + '">Jumlah</label>' +
+          '<input type="number" id="oiQty' + n + '" class="form-control tnum item-qty" min="1" inputmode="numeric" value="' + (sizeMode ? '' : (qty !== undefined ? qty : '')) + '" oninput="recalculateOrderModalSummary()"' + (sizeMode ? ' readonly tabindex="-1"' : '') + '></div>' +
+        '<div class="oi-field"><label class="oi-label" for="oiHarga' + n + '">Harga satuan</label>' +
+          '<div class="input-rupiah-group"><span class="input-rupiah-prefix">Rp</span>' +
+          '<input type="number" id="oiHarga' + n + '" class="item-harga" min="0" step="500" inputmode="numeric" value="' + (harga !== undefined ? harga : '') + '" oninput="recalculateOrderModalSummary()"></div></div>' +
+        '<div class="oi-field oi-sub"><span class="oi-label">Subtotal</span><span class="numeric-md tnum item-subtotal">Rp 0</span></div>' +
+      '</div>';
     container.appendChild(row);
+    renumberItemRows_();
     recalculateOrderModalSummary();
+    return row;
+  }
+
+  function renumberItemRows_() {
+    document.querySelectorAll('#orderItemsContainer .order-item-row').forEach(function(r, i) {
+      const el = r.querySelector('.oi-num');
+      if (el) el.textContent = String(i + 1);
+    });
+  }
+
+  function addCustomSize_(btn) {
+    btn.insertAdjacentHTML('beforebegin', sizeCellHtml_('', 0, true));
+    const cell = btn.previousElementSibling;
+    if (cell) cell.querySelector('.size-label-input').focus();
+  }
+
+  function toggleItemSizeMode_(btn) {
+    const row = btn.closest('.order-item-row');
+    const toManual = !row.classList.contains('manual');
+    row.classList.toggle('manual', toManual);
+    btn.textContent = toManual ? 'Pakai ukuran' : 'Tanpa ukuran';
+    const qty = row.querySelector('.item-qty');
+    if (toManual) {
+      qty.readOnly = false; qty.removeAttribute('tabindex');
+      const man = row.querySelector('.item-ukuran-manual');
+      if (!man.value) man.value = 'All Size';
+      qty.focus();
+    } else {
+      qty.readOnly = true; qty.setAttribute('tabindex', '-1');
+    }
+    recalculateOrderModalSummary();
+  }
+
+  /** Hitung qty & teks ukuran dari kotak ukuran (mode ukuran) atau dari isian bebas (mode tanpa ukuran). */
+  function syncItemRow_(row) {
+    const ukField = row.querySelector('.item-ukuran');
+    if (!ukField) return;
+    if (row.classList.contains('manual')) {
+      ukField.value = row.querySelector('.item-ukuran-manual').value.trim() || 'All Size';
+      return;
+    }
+    let total = 0;
+    const parts = [];
+    row.querySelectorAll('.size-cell').forEach(function(c) {
+      const q = Math.max(0, Math.floor(Number(c.querySelector('.size-qty').value) || 0));
+      const labIn = c.querySelector('.size-label-input');
+      const label = (labIn ? labIn.value : c.dataset.label).trim();
+      if (q > 0 && label) { total += q; parts.push(label + ' (' + q + ')'); }
+    });
+    row.querySelector('.item-qty').value = total || '';
+    ukField.value = parts.join(', ');
   }
 
   function removeOrderItemRow(btn) {
     const container = document.getElementById('orderItemsContainer');
     if (container.querySelectorAll('.order-item-row').length <= 1) {
-      showToast('Order wajib memiliki minimal 1 baris item produk.', 'warning');
+      showToast('Pesanan minimal berisi 1 barang.', 'warning');
       return;
     }
     btn.closest('.order-item-row').remove();
+    renumberItemRows_();
+    recalculateOrderModalSummary();
+  }
+
+  // ----------------------------------------------------------------- langkah
+  function orderStepValid_(step) {
+    if (step >= 1) {
+      if (!document.getElementById('orderPelangganSelect').value) { showToast('Pilih pelanggan terlebih dahulu.', 'error'); return 1; }
+      if (!document.getElementById('orderDeadlineInput').value) { showToast('Isi tanggal harus selesai.', 'error'); return 1; }
+    }
+    if (step >= 2) {
+      const rows = document.querySelectorAll('#orderItemsContainer .order-item-row');
+      for (let i = 0; i < rows.length; i++) {
+        syncItemRow_(rows[i]);
+        const jenis = rows[i].querySelector('.item-jenis').value.trim();
+        const qty = Number(rows[i].querySelector('.item-qty').value) || 0;
+        if (!jenis) { showToast('Barang ke-' + (i + 1) + ': isi jenis barangnya.', 'error'); rows[i].querySelector('.item-jenis').focus(); return 2; }
+        if (qty <= 0) { showToast('Barang ke-' + (i + 1) + ': isi jumlah per ukuran.', 'error'); return 2; }
+        if (rows[i].querySelector('.item-harga').value === '') { showToast('Barang ke-' + (i + 1) + ': isi harga satuan.', 'error'); return 2; }
+      }
+    }
+    return 0;
+  }
+
+  function goOrderStep_(step) {
+    const cur = APP_STATE.orderStep || 1;
+    if (step > cur) {
+      const bad = orderStepValid_(step - 1);
+      if (bad) { if (bad !== cur) step = bad; else return; }
+    }
+    APP_STATE.orderStep = step;
+    document.querySelectorAll('#orderModal .wizard-pane').forEach(function(p) { p.hidden = Number(p.dataset.pane) !== step; });
+    document.querySelectorAll('#orderModal .wizard-step').forEach(function(b) {
+      const n = Number(b.dataset.step);
+      b.classList.toggle('active', n === step);
+      b.classList.toggle('done', n < step);
+      if (n === step) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
+    });
+    document.getElementById('orderBackBtn').textContent = step === 1 ? 'Batal' : 'Kembali';
+    document.getElementById('orderNextBtn').textContent = step === 3 ? 'Simpan Pesanan' : 'Lanjut';
+    const body = document.querySelector('#orderModal .modal-body');
+    if (body) body.scrollTop = 0;
+    recalculateOrderModalSummary();
+  }
+  function orderWizardNext_() {
+    if ((APP_STATE.orderStep || 1) < 3) goOrderStep_((APP_STATE.orderStep || 1) + 1);
+    else submitOrderForm();
+  }
+  function orderWizardBack_() {
+    if ((APP_STATE.orderStep || 1) > 1) goOrderStep_(APP_STATE.orderStep - 1);
+    else closeModal('orderModal');
+  }
+  function setOrderDpPercent_(pct) {
+    recalculateOrderModalSummary();
+    const total = APP_STATE.orderTotal || 0;
+    document.getElementById('orderDpInput').value = pct === 100 ? total : Math.round(total * pct / 100 / 1000) * 1000;
     recalculateOrderModalSummary();
   }
 
@@ -1730,7 +1910,7 @@
     if (ref) {
       const container = document.getElementById('orderItemsContainer');
       container.innerHTML = '';
-      addOrderItemRow(ref.nama_produk, 'S, M, L, XL', 24, Number(ref.harga_jual_per_pcs) || 75000);
+      addOrderItemRow(ref.nama_produk, undefined, undefined, Number(ref.harga_jual_per_pcs) || 0);
       showToast('Acuan harga "' + ref.nama_produk + '" diterapkan ke form Order Baru.', 'info');
     }
   }
@@ -1739,15 +1919,25 @@
     if (!hppId || !APP_STATE.data) return;
     const ref = (APP_STATE.data.productPriceRefs || []).find(function(r) { return r.id === hppId; });
     if (ref) {
-      addOrderItemRow(ref.nama_produk, 'M, L, XL', 24, ref.harga_jual_per_pcs);
+      const rows = document.querySelectorAll('#orderItemsContainer .order-item-row');
+      const last = rows[rows.length - 1];
+      if (rows.length === 1 && last && !last.querySelector('.item-jenis').value.trim()) {
+        last.querySelector('.item-jenis').value = ref.nama_produk;
+        last.querySelector('.item-harga').value = ref.harga_jual_per_pcs;
+        recalculateOrderModalSummary();
+      } else {
+        addOrderItemRow(ref.nama_produk, undefined, undefined, ref.harga_jual_per_pcs);
+      }
     }
     document.getElementById('orderHppRefSelect').value = '';
   }
 
   function recalculateOrderModalSummary() {
     const rows = document.querySelectorAll('#orderItemsContainer .order-item-row');
-    let totalHarga = 0;
+    let totalHarga = 0, totalQty = 0;
     rows.forEach(function(r) {
+      syncItemRow_(r);
+      totalQty += Number(r.querySelector('.item-qty').value) || 0;
       const qty = Number(r.querySelector('.item-qty').value) || 0;
       const harga = Number(r.querySelector('.item-harga').value) || 0;
       const sub = Math.round(qty * harga);
@@ -1767,11 +1957,14 @@
       badgeClass = 'badge-success';
     }
 
+    APP_STATE.orderTotal = totalHarga;
     document.getElementById('orderSummaryTotal').textContent = formatRupiah(totalHarga);
+    document.getElementById('orderFooterTotal').textContent = formatRupiah(totalHarga);
+    document.getElementById('orderSummaryQty').textContent = totalQty.toLocaleString('id-ID') + ' pcs';
     document.getElementById('orderSummaryPaid').textContent = formatRupiah(dp);
     document.getElementById('orderSummaryRemaining').textContent = formatRupiah(remaining);
     const badge = document.getElementById('orderSummaryStatusBayar');
-    badge.textContent = statusBayar;
+    badge.textContent = PAY_LABEL_[statusBayar] || statusBayar;
     badge.className = 'badge ' + badgeClass;
   }
 
@@ -1784,6 +1977,8 @@
     const dpAwal = Number(document.getElementById('orderDpInput').value) || 0;
     const metodeBayar = document.getElementById('orderMetodeBayarInput').value;
 
+    const badStep = orderStepValid_(2);
+    if (badStep) { goOrderStep_(badStep); return; }
     if (!idPelanggan) {
       showToast('Pilih pelanggan terlebih dahulu.', 'error');
       return;
@@ -1825,7 +2020,7 @@
     callServer('saveOrder', [payload], function(res) {
       closeModal('orderModal');
       applyServerPayload(res);
-      showToast(idOrder ? 'Data order berhasil diperbarui!' : 'Order baru berhasil disimpan!', 'success');
+      showToast(idOrder ? 'Pesanan berhasil diperbarui.' : 'Pesanan baru tersimpan.', 'success');
     });
   }
 
