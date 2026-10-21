@@ -545,7 +545,10 @@
       const s = document.createElement('script');
       s.src = CHART_JS_URL;
       s.async = true;
-      s.onload = function() { resolve(); };
+      s.onload = function() {
+        if (typeof Chart === 'undefined') { chartJsPromise_ = null; reject(new Error('Chart.js tidak valid')); }
+        else resolve();
+      };
       s.onerror = function() { chartJsPromise_ = null; reject(new Error('Gagal memuat Chart.js')); };
       document.head.appendChild(s);
     });
@@ -668,6 +671,7 @@
 
   /** Dipanggil sekali saat halaman dibuka. */
   function initV31_() {
+    initCollapsibles_();
     storeRemove_('sessionStorage', 'simako_payload_cache_v3');   // cache versi lama
     const setupMode = /[?&]setup=1\b/.test(location.search) || !isGasUrlConfigured();
     if (setupMode) document.querySelectorAll('[data-setup-only]').forEach(function(el) { el.hidden = false; });
@@ -1279,18 +1283,7 @@
           '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#1F8A55" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>' +
           '<span>Terima Bayaran</span></button>' +
       '</div>' +
-      '<button type="button" class="home-unpaid" onclick="switchView(\'order\')">' +
-        '<span class="home-unpaid-label">Belum dibayar pelanggan</span>' +
-        '<span class="home-unpaid-row"><span class="home-unpaid-amount">' + formatRupiah(unpaidTotal) + '</span>' +
-        '<span class="home-link">Lihat ' + unpaid.length + ' tagihan</span></span>' +
-      '</button>' +
-      '<div class="home-section"><span>Yang perlu dikerjakan</span><span class="home-count">' + todo.length + ' pesanan</span></div>' +
-      '<div class="home-tasks">' + items + '</div>' +
-      (lowStock.length && isOwnerRole()
-        ? '<button type="button" class="home-alert" onclick="switchView(\'stok\')">' + lowStock.length + ' bahan hampir habis: ' +
-            escapeHtml(lowStock.slice(0, 2).map(function(m) { return m.nama_bahan; }).join(', ')) + (lowStock.length > 2 ? ', …' : '') + '</button>'
-        : '') +
-      '<div class="home-section home-more"><span>Ringkasan</span></div>';
+      '';
   }
 
   /** Terima bayaran dari beranda: pilih pesanan yang masih punya tagihan. */
@@ -1354,7 +1347,7 @@
             '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>' +
           '</div>' +
         '</div>' +
-        '<div class="kpi-value tnum">' + activeOrders.length + ' Order</div>' +
+        '<div class="kpi-value tnum">' + activeOrders.length + ' pesanan</div>' +
         '<div class="kpi-foot">Pesanan diterima & sedang dijahit</div>' +
       '</div>' +
 
@@ -1365,7 +1358,7 @@
             '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
           '</div>' +
         '</div>' +
-        '<div class="kpi-value tnum" style="color:' + (urgentOrders.length > 0 ? 'var(--danger-text)' : 'var(--text-primary)') + ';">' + urgentOrders.length + ' Order</div>' +
+        '<div class="kpi-value tnum" style="color:' + (urgentOrders.length > 0 ? 'var(--danger-text)' : 'var(--text-primary)') + ';">' + urgentOrders.length + ' pesanan</div>' +
         '<div class="kpi-foot">Kerjakan lebih dulu</div>' +
       '</div>';
 
@@ -1456,7 +1449,7 @@
       return '<div style="margin-bottom:12px;">' +
         '<div class="flex-between" style="margin-bottom:4px; font-size:13px;">' +
           '<span>' + getOrderStatusBadge(st) + '</span>' +
-          '<strong class="tnum">' + count + ' Order (' + pct + '%)</strong>' +
+          '<strong class="tnum">' + count + ' pesanan (' + pct + '%)</strong>' +
         '</div>' +
         '<div style="height:6px; background:var(--bg-subtle); border-radius:99px; overflow:hidden;">' +
           '<div style="height:100%; width:' + pct + '%; background:var(--primary); border-radius:99px;"></div>' +
@@ -1470,6 +1463,64 @@
    * 4. VIEW 2: MANAJEMEN ORDER & PEMBAYARAN (F3, F4, F8)
    * ==========================================================================
    */
+
+  /**
+   * ==========================================================================
+   * v3.2 — PRIORITAS TAMPILAN: filter cepat pesanan & kartu yang bisa dilipat
+   * ==========================================================================
+   */
+  const ORDER_PRESETS_ = {
+    all: { s: 'ALL', p: 'ALL' }, baru: { s: 'Baru', p: 'ALL' }, jahit: { s: 'Diproses', p: 'ALL' },
+    siap: { s: 'Selesai', p: 'ALL' }, utang: { s: 'ALL', p: 'UNPAID' }
+  };
+  function setOrderPreset_(key) {
+    const pr = ORDER_PRESETS_[key] || ORDER_PRESETS_.all;
+    document.getElementById('filterOrderStatus').value = pr.s;
+    document.getElementById('filterPaymentStatus').value = pr.p;
+    renderOrdersTable();
+  }
+  function syncOrderChips_() {
+    const s = document.getElementById('filterOrderStatus').value;
+    const p = document.getElementById('filterPaymentStatus').value;
+    document.querySelectorAll('.order-chips [data-preset]').forEach(function(b) {
+      const pr = ORDER_PRESETS_[b.dataset.preset];
+      const on = pr.s === s && pr.p === p;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+  function toggleOrderMoreFilters_(btn) {
+    const box = document.getElementById('orderMoreFilters');
+    const open = box.hidden;
+    box.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btn.textContent = open ? 'Tutup filter' : 'Filter lain';
+  }
+
+  /** Kartu berprioritas rendah tampil terlipat; isi tetap ada, cukup satu ketuk untuk membuka. */
+  const COLLAPSED_CARDS_ = ['Riwayat Barang Masuk & Keluar', 'Catatan Aktivitas'];
+  function initCollapsibles_() {
+    document.querySelectorAll('.card-title').forEach(function(t) {
+      const title = t.textContent.trim();
+      if (COLLAPSED_CARDS_.indexOf(title) === -1) return;
+      const card = t.closest('.card');
+      const header = t.closest('.card-header');
+      if (!card || !header || card.dataset.collapsible) return;
+      card.dataset.collapsible = '1';
+      card.classList.add('is-collapsed');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-ghost btn-sm card-toggle';
+      btn.setAttribute('aria-expanded', 'false');
+      btn.textContent = 'Tampilkan';
+      btn.addEventListener('click', function() {
+        const collapsed = card.classList.toggle('is-collapsed');
+        btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        btn.textContent = collapsed ? 'Tampilkan' : 'Sembunyikan';
+      });
+      header.appendChild(btn);
+    });
+  }
 
   function resetOrderFilters() {
     document.getElementById('searchOrderInput').value = '';
@@ -1490,9 +1541,11 @@
     const fStart = document.getElementById('filterDeadlineStart').value;
     const fEnd = document.getElementById('filterDeadlineEnd').value;
 
+    syncOrderChips_();
     const filtered = (d.orders || []).filter(function(o) {
       if (fStatus !== 'ALL' && o.status_order !== fStatus) return false;
-      if (fPay !== 'ALL' && o.status_bayar !== fPay) return false;
+      if (fPay === 'UNPAID') { if (o.status_order === 'Batal' || o.status_bayar === 'Lunas') return false; }
+      else if (fPay !== 'ALL' && o.status_bayar !== fPay) return false;
       if (fStart && String(o.deadline) < fStart) return false;
       if (fEnd && String(o.deadline) > fEnd) return false;
       if (q) {
@@ -1514,7 +1567,7 @@
       return '<tr>' +
         '<td>' +
           '<div class="code-cell">' + escapeHtml(o.no_invoice) + '</div>' +
-          '<div class="mobile-sub">' + escapeHtml(o.nama_pelanggan) + ' • ' + escapeHtml(o.status_order) + '</div>' +
+          '<div class="mobile-sub">' + escapeHtml(o.nama_pelanggan) + ' • ' + escapeHtml(statusLabel_(o.status_order)) + '</div>' +
         '</td>' +
         '<td class="col-desktop-only"><div class="cell-truncate" style="font-weight:600;">' + escapeHtml(o.nama_pelanggan) + '</div></td>' +
         '<td class="col-desktop-only">' +
@@ -2688,24 +2741,24 @@
 
     document.getElementById('financeKpiGrid').innerHTML = '' +
       '<div class="kpi-card">' +
-        '<div class="kpi-top"><span class="label-sm">Pemasukan Kas (DP & Pelunasan)</span><span class="badge badge-success">Masuk</span></div>' +
+        '<div class="kpi-top"><span class="label-sm">Uang masuk</span><span class="badge badge-success">Masuk</span></div>' +
         '<div class="kpi-value tnum" style="color:var(--success-text);">' + formatRupiah(totalIn) + '</div>' +
-        '<div class="kpi-foot">' + filteredPays.length + ' transaksi pembayaran masuk</div>' +
+        '<div class="kpi-foot">' + filteredPays.length + ' pembayaran diterima</div>' +
       '</div>' +
       '<div class="kpi-card">' +
-        '<div class="kpi-top"><span class="label-sm">Pengeluaran Operasional</span><span class="badge badge-danger">Keluar</span></div>' +
+        '<div class="kpi-top"><span class="label-sm">Uang keluar</span><span class="badge badge-danger">Keluar</span></div>' +
         '<div class="kpi-value tnum" style="color:var(--danger-text);">' + formatRupiah(totalOut) + '</div>' +
-        '<div class="kpi-foot">' + filteredExps.length + ' catatan pengeluaran kas</div>' +
+        '<div class="kpi-foot">' + filteredExps.length + ' catatan belanja</div>' +
       '</div>' +
       '<div class="kpi-card">' +
-        '<div class="kpi-top"><span class="label-sm">Selisih Arus Kas Bersih</span><span class="badge badge-info">Netto</span></div>' +
+        '<div class="kpi-top"><span class="label-sm">Sisa uang bulan ini</span><span class="badge badge-info">Netto</span></div>' +
         '<div class="kpi-value tnum" style="color:' + (netCash >= 0 ? 'var(--primary)' : 'var(--danger-text)') + ';">' + formatRupiah(netCash) + '</div>' +
-        '<div class="kpi-foot">Pemasukan dikurangi Pengeluaran periode ini</div>' +
+        '<div class="kpi-foot">Uang masuk dikurangi uang keluar</div>' +
       '</div>' +
       '<div class="kpi-card">' +
-        '<div class="kpi-top"><span class="label-sm">Total Piutang Akhir</span><span class="badge badge-warning">Piutang</span></div>' +
+        '<div class="kpi-top"><span class="label-sm">Belum dibayar</span><span class="badge badge-warning">Piutang</span></div>' +
         '<div class="kpi-value tnum" style="color:var(--warning-text);">' + formatRupiah(totalReceivables) + '</div>' +
-        '<div class="kpi-foot">Dari ' + unpaidOrders.length + ' order yang belum lunas</div>' +
+        '<div class="kpi-foot">Dari ' + unpaidOrders.length + ' pesanan belum lunas</div>' +
       '</div>';
 
     // 1. Tabel Piutang (5 kolom + Detail)

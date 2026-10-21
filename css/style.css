@@ -2027,3 +2027,44 @@
     body:has(.modal-backdrop.open) .bottom-nav, body:has(.app-sidebar.open) .bottom-nav, body:has(.sidebar.open) .bottom-nav { display: none; }
     .toast-stack { bottom: 84px !important; }
   }
+
+  /* v3.2b — beranda tugas hanya di HP; komputer memakai dashboard */
+  @media (min-width: 768px) { #homeTaskPanel { display: none; } }
+  #homeTaskPanel { margin-bottom: 18px; }
+
+  /* Filter cepat pesanan */
+  .order-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border-color);
+    background: var(--bg-surface); color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .chip.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .chip-ghost { border-style: dashed; color: var(--text-muted); }
+  .chip:focus-visible, .card-toggle:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+  .order-more { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+  .order-more[hidden] { display: none; }
+  @media (max-width: 767px) {
+    .order-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; margin: 0 -2px; }
+    .order-chips::-webkit-scrollbar { display: none; }
+    .chip { flex: none; }
+    .order-more > * { flex: 1 1 140px; min-width: 0; }
+  }
+
+  /* Kartu yang bisa dilipat */
+  .card.is-collapsed > :not(.card-header) { display: none; }
+  .card.is-collapsed > .card-header { border-bottom: 0; }
+  .card-toggle { margin-left: auto; flex: none; }
+  @media (max-width: 767px) {
+    .filter-toolbar .order-chips, .filter-toolbar .order-more { grid-column: 1 / -1; min-width: 0; }
+    .data-table td.num-col .btn, .data-table td:last-child .btn { padding: 0 10px; min-width: 0; }
+    .data-table .cell-truncate { max-width: 112px; }
+  }
+  @media (max-width: 767px) {
+    .data-table .mobile-sub { max-width: 128px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .data-table .code-cell { max-width: 128px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  }
+  @media (max-width: 767px) {
+    .data-table th, .data-table td { padding-left: 8px; padding-right: 8px; }
+    .data-table th:first-child, .data-table td:first-child { padding-left: 14px; }
+    .data-table th:last-child, .data-table td:last-child { padding-right: 12px; }
+  }

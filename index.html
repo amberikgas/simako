@@ -272,10 +272,10 @@
               <div class="card">
                 <div class="card-header">
                   <div>
-                    <div class="card-title">Prioritas Produksi & Deadline Terdekat</div>
-                    <div class="card-subtitle">Order berstatus Baru & Diproses diurutkan berdasarkan tenggat waktu terdekat</div>
+                    <div class="card-title">Tenggat Terdekat</div>
+                    <div class="card-subtitle">Pesanan yang sedang dikerjakan, paling mendesak di atas</div>
                   </div>
-                  <button type="button" class="btn btn-secondary btn-sm" onclick="switchView('order')">Lihat Semua Order</button>
+                  <button type="button" class="btn btn-secondary btn-sm" onclick="switchView('order')">Lihat semua</button>
                 </div>
                 <div class="card-body-flush table-responsive">
                   <table class="data-table dash-priority-table">
@@ -283,7 +283,7 @@
                       <tr>
                         <th>No. Invoice</th>
                         <th class="col-desktop-only">Pelanggan</th>
-                        <th class="col-desktop-only">Deadline</th>
+                        <th class="col-desktop-only">Tenggat</th>
                         <th>Status</th>
                         <th class="num-col">Aksi</th>
                       </tr>
@@ -301,10 +301,10 @@
                 <div class="card-header">
                   <div>
                     <div class="card-title">
-                      <span>Peringatan Stok Bahan</span>
+                      <span>Stok Hampir Habis</span>
                       <span class="badge-owner-mini">Owner</span>
                     </div>
-                    <div class="card-subtitle">Bahan baku di bawah batas minimum</div>
+                    <div class="card-subtitle">Perlu segera dibeli</div>
                   </div>
                   <button type="button" class="btn btn-ghost btn-xs" onclick="switchView('stok')">Kelola Stok</button>
                 </div>
@@ -315,8 +315,8 @@
               <div class="card">
                 <div class="card-header">
                   <div>
-                    <div class="card-title">Pipeline Status Konveksi</div>
-                    <div class="card-subtitle">Distribusi status seluruh order tercatat</div>
+                    <div class="card-title">Pesanan per Tahap</div>
+                    <div class="card-subtitle">Jumlah pesanan di setiap tahap</div>
                   </div>
                 </div>
                 <div class="card-body" id="dashboardStatusSummary"></div>
@@ -334,29 +334,40 @@
               <div class="filter-toolbar">
                 <div class="search-box">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                  <input type="text" id="searchOrderInput" class="form-control" placeholder="Cari pelanggan, no. invoice, atau produk..." oninput="debouncedRenderOrders()">
+                  <input type="text" id="searchOrderInput" class="form-control" placeholder="Cari nama pelanggan, nota, atau barang" oninput="debouncedRenderOrders()">
                 </div>
+                <div class="order-chips" role="group" aria-label="Filter cepat pesanan">
+                  <button type="button" class="chip" data-preset="all" onclick="setOrderPreset_('all')">Semua</button>
+                  <button type="button" class="chip" data-preset="baru" onclick="setOrderPreset_('baru')">Diterima</button>
+                  <button type="button" class="chip" data-preset="jahit" onclick="setOrderPreset_('jahit')">Dijahit</button>
+                  <button type="button" class="chip" data-preset="siap" onclick="setOrderPreset_('siap')">Siap diambil</button>
+                  <button type="button" class="chip" data-preset="utang" onclick="setOrderPreset_('utang')">Belum lunas</button>
+                  <button type="button" class="chip chip-ghost" aria-expanded="false" aria-controls="orderMoreFilters" onclick="toggleOrderMoreFilters_(this)">Filter lain</button>
+                </div>
+                <div id="orderMoreFilters" class="order-more" hidden>
                 <select id="filterOrderStatus" class="form-select filter-select" onchange="renderOrdersTable()">
-                  <option value="ALL">Semua Status Order</option>
-                  <option value="Baru">Baru</option>
-                  <option value="Diproses">Diproses</option>
+                  <option value="ALL">Semua tahap</option>
+                  <option value="Baru">Diterima</option>
+                  <option value="Diproses">Dijahit</option>
                   <option value="Selesai">Selesai</option>
                   <option value="Diambil">Diambil</option>
                   <option value="Batal">Batal (Void)</option>
                 </select>
                 <select id="filterPaymentStatus" class="form-select filter-select" onchange="renderOrdersTable()">
-                  <option value="ALL">Semua Status Bayar</option>
-                  <option value="Belum Bayar">Belum Bayar</option>
-                  <option value="DP">DP (Sebagian)</option>
+                  <option value="ALL">Semua pembayaran</option>
+                  <option value="UNPAID">Belum lunas</option>
+                  <option value="Belum Bayar">Belum bayar</option>
+                  <option value="DP">Uang muka</option>
                   <option value="Lunas">Lunas</option>
                 </select>
                 <input type="date" id="filterDeadlineStart" class="form-control filter-date" title="Deadline Dari" onchange="renderOrdersTable()">
                 <input type="date" id="filterDeadlineEnd" class="form-control filter-date" title="Deadline Sampai" onchange="renderOrdersTable()">
                 <button type="button" class="btn btn-ghost btn-sm" onclick="resetOrderFilters()">Reset</button>
+                </div>
               </div>
               <button type="button" class="btn btn-primary" onclick="openOrderModal()">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                <span>Tambah Order</span>
+                <span>Pesanan Baru</span>
               </button>
             </div>
 
@@ -366,9 +377,9 @@
                   <tr>
                     <th>No. Invoice</th>
                     <th class="col-desktop-only">Pelanggan</th>
-                    <th class="col-desktop-only">Deadline</th>
+                    <th class="col-desktop-only">Tenggat</th>
                     <th class="col-desktop-only">Status Order</th>
-                    <th class="num-col">Tagihan & Status</th>
+                    <th class="num-col">Tagihan</th>
                     <th class="num-col">Aksi</th>
                   </tr>
                 </thead>
@@ -424,7 +435,7 @@
                       <span>Kalkulator HPP & Harga Jual per Pcs</span>
                       <span class="badge badge-owner">Khusus Owner</span>
                     </div>
-                    <div class="card-subtitle">Terhubung langsung dengan harga bahan terbaru di Stok Bahan</div>
+                    <div class="card-subtitle">Memakai harga bahan terbaru dari Stok</div>
                   </div>
                   <button type="button" class="btn btn-ghost btn-sm" onclick="resetHppCalculator()">Reset</button>
                 </div>
@@ -508,8 +519,8 @@
               <div class="card">
                 <div class="card-header">
                   <div>
-                    <div class="card-title">Katalog & Riwayat Kalkulasi HPP</div>
-                    <div class="card-subtitle">Acuan harga jual cepat saat menginput order pelanggan</div>
+                    <div class="card-title">Daftar Hitungan Modal</div>
+                    <div class="card-subtitle">Dipakai sebagai saran harga saat mencatat pesanan</div>
                   </div>
                 </div>
                 <div class="card-body-flush table-responsive">
@@ -579,8 +590,8 @@
           <div class="card">
             <div class="card-header">
               <div>
-                <div class="card-title">Riwayat Mutasi Stok Masuk & Keluar</div>
-                <div class="card-subtitle">Pembelian stok masuk otomatis memperbarui harga per satuan bahan</div>
+                <div class="card-title">Riwayat Barang Masuk & Keluar</div>
+                <div class="card-subtitle">Pembelian bahan otomatis memperbarui harga bahan</div>
               </div>
             </div>
             <div class="card-body-flush table-responsive">
@@ -607,7 +618,7 @@
           <!-- Filter Periode Laporan Keuangan Bulanan -->
           <div class="flex-between" style="margin-bottom:20px;">
             <div class="flex-row">
-              <span class="label-md">Periode Laporan Bulanan:</span>
+              <span class="label-md">Bulan:</span>
               <select id="financeMonthSelect" class="form-select" style="width:150px;" onchange="renderFinanceView()">
                 <option value="ALL">Semua Bulan</option>
                 <option value="01">Januari</option>
@@ -639,17 +650,17 @@
 
           <!-- Sub-Tab Keuangan: Piutang | Pemasukan | Pengeluaran -->
           <div class="tabs-bar">
-            <button type="button" class="tab-btn active" id="tabBtnPiutang" onclick="switchFinanceTab('piutang')">Daftar Piutang Pelanggan</button>
-            <button type="button" class="tab-btn" id="tabBtnPemasukan" onclick="switchFinanceTab('pemasukan')">Pemasukan (DP & Pelunasan)</button>
-            <button type="button" class="tab-btn" id="tabBtnPengeluaran" onclick="switchFinanceTab('pengeluaran')">Pengeluaran Operasional</button>
+            <button type="button" class="tab-btn active" id="tabBtnPiutang" onclick="switchFinanceTab('piutang')">Tagihan</button>
+            <button type="button" class="tab-btn" id="tabBtnPemasukan" onclick="switchFinanceTab('pemasukan')">Uang Masuk</button>
+            <button type="button" class="tab-btn" id="tabBtnPengeluaran" onclick="switchFinanceTab('pengeluaran')">Uang Keluar</button>
           </div>
 
           <!-- Sub-View Piutang -->
           <div id="financeSubPiutang" class="card">
             <div class="card-header">
               <div>
-                <div class="card-title">Daftar Piutang Order Belum Lunas</div>
-                <div class="card-subtitle">Memantau sisa tagihan beserta umur piutang sejak tanggal order</div>
+                <div class="card-title">Tagihan Belum Lunas</div>
+                <div class="card-subtitle">Sisa tagihan pelanggan dan sudah berapa lama</div>
               </div>
             </div>
             <div class="card-body-flush table-responsive">
@@ -672,8 +683,8 @@
           <div id="financeSubPemasukan" class="card" style="display:none;">
             <div class="card-header">
               <div>
-                <div class="card-title">Buku Kas Pemasukan (Otomatis dari Pembayaran Order)</div>
-                <div class="card-subtitle">Seluruh transaksi DP, cicilan, dan pelunasan yang masuk</div>
+                <div class="card-title">Uang Masuk</div>
+                <div class="card-subtitle">Otomatis dari setiap pembayaran pesanan</div>
               </div>
             </div>
             <div class="card-body-flush table-responsive">
@@ -696,8 +707,8 @@
           <div id="financeSubPengeluaran" class="card" style="display:none;">
             <div class="card-header">
               <div>
-                <div class="card-title">Buku Kas Pengeluaran Operasional & Produksi</div>
-                <div class="card-subtitle">Belanja bahan, upah jahit/obras, vendor sablon/bordir, dan listrik</div>
+                <div class="card-title">Uang Keluar</div>
+                <div class="card-subtitle">Belanja bahan, upah jahit, sablon/bordir, listrik</div>
               </div>
             </div>
             <div class="card-body-flush table-responsive">
@@ -823,8 +834,8 @@
               <div class="card">
                 <div class="card-header">
                   <div>
-                    <div class="card-title">Identitas Usaha & Format Invoice</div>
-                    <div class="card-subtitle">Tampil otomatis pada kop cetak Invoice A4 dan Nota Ringkas</div>
+                    <div class="card-title">Data Usaha</div>
+                    <div class="card-subtitle">Tampil di kop nota dan invoice</div>
                   </div>
                 </div>
                 <div class="card-body">
@@ -902,8 +913,8 @@
               <div class="card" style="margin-bottom:24px;">
                 <div class="card-header">
                   <div>
-                    <div class="card-title">Daftar Pengguna & Hak Akses (RBAC)</div>
-                    <div class="card-subtitle">Hanya akun Google berstatus Aktif = Ya yang diizinkan mengakses Si-MAKO</div>
+                    <div class="card-title">Pengguna</div>
+                    <div class="card-subtitle">Siapa saja yang boleh memakai aplikasi ini</div>
                   </div>
                   <button type="button" class="btn btn-primary btn-sm" onclick="openUserModal()">+ Tambah Pengguna</button>
                 </div>
@@ -926,8 +937,8 @@
               <div class="card">
                 <div class="card-header">
                   <div>
-                    <div class="card-title">Log Aktivitas Terbaru</div>
-                    <div class="card-subtitle">Jejak audit perubahan data oleh Owner & Admin</div>
+                    <div class="card-title">Catatan Aktivitas</div>
+                    <div class="card-subtitle">Siapa mengubah apa, dan kapan</div>
                   </div>
                 </div>
                 <div class="card-body-flush table-responsive" style="max-height:280px; overflow-y:auto;">
