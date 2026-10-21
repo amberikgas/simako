@@ -3037,6 +3037,14 @@
    * ==========================================================================
    */
 
+  const BULAN_SINGKAT_ = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  /** '2026-05' → 'Mei'; tahun ditambahkan hanya pada Januari agar pergantian tahun tetap terlihat. */
+  function monthLabel_(ym, i) {
+    const p = String(ym).split('-');
+    const name = BULAN_SINGKAT_[(Number(p[1]) || 1) - 1] || ym;
+    return (i === 0 || p[1] === '01') ? name + ' ' + String(p[0]).slice(2) : name;
+  }
+
   function renderAnalyticsCharts() {
     const d = APP_STATE.data;
     if (!d || !isOwnerRole()) return;
@@ -3082,7 +3090,7 @@
         tooltip: { callbacks: { label: function(c) { return ' ' + (c.dataset.label || '') + ': ' + formatRupiah(c.parsed.y); } } }
       },
       scales: {
-        x: { ticks: { color: palette.text }, grid: { color: palette.grid } },
+        x: { ticks: { color: palette.text, maxRotation: 0, minRotation: 0, autoSkip: true, autoSkipPadding: 8 }, grid: { display: false } },
         y: { beginAtZero: true, ticks: { color: palette.text, callback: compactRupiah }, grid: { color: palette.grid } }
       }
     };
@@ -3106,9 +3114,9 @@
       APP_STATE.charts.omzet = new Chart(ctxOmzet, {
         type: 'bar',
         data: {
-          labels: months,
+          labels: months.map(monthLabel_),
           datasets: [{
-            label: 'Omzet Order (Rp)',
+            label: 'Penjualan',
             data: omzetSeries,
             backgroundColor: palette.primary,
             borderRadius: 6
@@ -3125,10 +3133,10 @@
       APP_STATE.charts.cashflow = new Chart(ctxCash, {
         type: 'bar',
         data: {
-          labels: months,
+          labels: months.map(monthLabel_),
           datasets: [
-            { label: 'Pemasukan', data: incomeSeries, backgroundColor: palette.success, borderRadius: 6 },
-            { label: 'Pengeluaran', data: expenseSeries, backgroundColor: palette.danger, borderRadius: 6 }
+            { label: 'Uang masuk', data: incomeSeries, backgroundColor: palette.success, borderRadius: 6 },
+            { label: 'Uang keluar', data: expenseSeries, backgroundColor: palette.danger, borderRadius: 6 }
           ]
         },
         options: barOptions
@@ -3146,7 +3154,7 @@
       APP_STATE.charts.status = new Chart(ctxStatus, {
         type: 'doughnut',
         data: {
-          labels: statusLabels,
+          labels: statusLabels.map(statusLabel_),
           datasets: [{
             data: statusCounts,
             backgroundColor: [palette.info, palette.warning, palette.success, palette.neutral],

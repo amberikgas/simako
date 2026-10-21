@@ -2068,3 +2068,8 @@
     .data-table th:first-child, .data-table td:first-child { padding-left: 14px; }
     .data-table th:last-child, .data-table td:last-child { padding-right: 12px; }
   }
+  /* v3.2c — satu pintu menu di HP: tombol "Lainnya" di bawah; ☰ di atas disembunyikan */
+  @media (max-width: 767px) {
+    .app-header .mobile-menu-btn { display: none; }
+    .app-header .header-left { padding-left: 4px; }
+  }
